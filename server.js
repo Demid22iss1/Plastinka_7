@@ -6866,6 +6866,268 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     </body>
     </html>`;
 }
+// ============================================================
+// ===================== СТРАНИЦА ИЗБРАННОГО (МОБИЛЬНАЯ) ==========
+// ============================================================
+app.get("/favorites", requireAuth, (req, res) => {
+    const user = req.session.user;
+    
+    // Получаем список избранного через API
+    const userId = user.id;
+    
+    db.all(`
+        SELECT f.*, p.name, p.artist, p.price, p.image, p.id as product_db_id, p.audio
+        FROM favorites f
+        JOIN products p ON f.product_id = 'product_' || p.id
+        WHERE f.user_id = ?
+        ORDER BY f.added_at DESC
+    `, [userId], (err, products) => {
+        if (err) products = [];
+        
+        db.all(`
+            SELECT f.*, pl.name, pl.price, pl.image, pl.id as player_db_id
+            FROM favorites f
+            JOIN players pl ON f.product_id = 'player_' || pl.id
+            WHERE f.user_id = ?
+            ORDER BY f.added_at DESC
+        `, [userId], (err2, players) => {
+            if (err2) players = [];
+            
+            // Собираем все избранное в один массив
+            const favorites = [];
+            
+            products.forEach(p => {
+                favorites.push({
+                    id: p.product_db_id,
+                    type: 'product',
+                    name: p.name,
+                    artist: p.artist,
+                    price: p.price,
+                    image: p.image,
+                    audio: p.audio,
+                    added_at: p.added_at
+                });
+            });
+            
+            players.forEach(p => {
+                favorites.push({
+                    id: p.player_db_id,
+                    type: 'player',
+                    name: p.name,
+                    artist: 'Проигрыватель',
+                    price: p.price,
+                    image: p.image,
+                    added_at: p.added_at
+                });
+            });
+            
+            // Сортируем по дате добавления (новые сверху)
+            favorites.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
+            
+            let favoritesHtml = '';
+            
+            if (favorites.length === 0) {
+                favoritesHtml = `
+                    <div class="empty-favorites">
+                        <div class="empty-icon"><i class="fas fa-heart-broken"></i></div>
+                        <h3>Избранное пусто</h3>
+                        <p>Добавляйте понравившиеся пластинки и проигрыватели в избранное, они появятся здесь</p>
+                        <a href="/catalog" class="empty-btn">📀 В каталог</a>
+                    </div>
+                `;
+            } else {
+                favoritesHtml = `<div class="favorites-list">`;
+                favorites.forEach(item => {
+                    const imagePath = item.type === 'product' ? `/uploads/${item.image}` : `/photo/${item.image}`;
+                    const productId = `${item.type}_${item.id}`;
+                    const typeLabel = item.type === 'product' ? 'Пластинка' : 'Проигрыватель';
+                    const artistHtml = item.type === 'product' ? `<div class="fav-artist">${escapeHtml(item.artist)}</div>` : '';
+                    
+                    favoritesHtml += `
+                        <div class="favorite-card" data-id="${item.id}" data-type="${item.type}">
+                            <div class="fav-image">
+                                <img src="${imagePath}" onerror="this.src='/photo/plastinka-audio.png'">
+                            </div>
+                            <div class="fav-info">
+                                <div class="fav-type">${typeLabel}</div>
+                                <div class="fav-name">${escapeHtml(item.name)}</div>
+                                ${artistHtml}
+                                <div class="fav-price">$${item.price}</div>
+                            </div>
+                            <div class="fav-actions">
+                                <button class="fav-cart-btn" onclick="addToCart('${productId}')">
+                                    <i class="fas fa-shopping-cart"></i>
+                                </button>
+                                <button class="fav-remove-btn" onclick="removeFromFavorites(${item.id}, '${item.type}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                favoritesHtml += `</div>`;
+            }
+            
+            const content = `
+                <style>
+                    .empty-favorites {
+                        text-align: center;
+                        padding: 60px 20px;
+                        background: linear-gradient(135deg, #1a1a1a, #0f0f0f);
+                        border-radius: 24px;
+                        margin: 20px 0;
+                    }
+                    .empty-icon {
+                        font-size: 80px;
+                        margin-bottom: 20px;
+                        opacity: 0.7;
+                    }
+                    .empty-favorites h3 {
+                        font-size: 24px;
+                        margin-bottom: 12px;
+                    }
+                    .empty-favorites p {
+                        color: #888;
+                        margin-bottom: 24px;
+                    }
+                    .empty-btn {
+                        display: inline-block;
+                        background: linear-gradient(45deg, #ff0000, #990000);
+                        color: white;
+                        padding: 12px 32px;
+                        border-radius: 40px;
+                        text-decoration: none;
+                        font-weight: bold;
+                    }
+                    .favorites-list {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 16px;
+                        margin-bottom: 20px;
+                    }
+                    .favorite-card {
+                        display: flex;
+                        align-items: center;
+                        gap: 12px;
+                        background: #1a1a1a;
+                        border-radius: 16px;
+                        padding: 12px;
+                        border: 1px solid #333;
+                        transition: all 0.2s;
+                    }
+                    .favorite-card:hover {
+                        border-color: #ff0000;
+                        transform: translateX(5px);
+                    }
+                    .fav-image {
+                        width: 70px;
+                        height: 70px;
+                        flex-shrink: 0;
+                        border-radius: 10px;
+                        overflow: hidden;
+                        background: #111;
+                    }
+                    .fav-image img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }
+                    .fav-info {
+                        flex: 1;
+                    }
+                    .fav-type {
+                        font-size: 10px;
+                        color: #ff7a2f;
+                        text-transform: uppercase;
+                        margin-bottom: 4px;
+                    }
+                    .fav-name {
+                        font-weight: bold;
+                        font-size: 15px;
+                        margin-bottom: 2px;
+                    }
+                    .fav-artist {
+                        font-size: 12px;
+                        color: #aaa;
+                        margin-bottom: 4px;
+                    }
+                    .fav-price {
+                        font-size: 14px;
+                        font-weight: bold;
+                        color: #ff0000;
+                    }
+                    .fav-actions {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                    }
+                    .fav-cart-btn, .fav-remove-btn {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 10px;
+                        border: none;
+                        cursor: pointer;
+                        transition: 0.2s;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .fav-cart-btn {
+                        background: linear-gradient(45deg, #ff0000, #990000);
+                        color: white;
+                    }
+                    .fav-remove-btn {
+                        background: rgba(255, 68, 68, 0.2);
+                        color: #ff4444;
+                        border: 1px solid #ff4444;
+                    }
+                    .fav-cart-btn:hover, .fav-remove-btn:hover {
+                        transform: scale(1.05);
+                    }
+                </style>
+                
+                <h2 class="section-title">❤️ Избранное</h2>
+                ${favoritesHtml}
+                
+                <script>
+                    function addToCart(productId) {
+                        fetch('/api/cart/add', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: productId })
+                        }).then(() => {
+                            showToastMobile('Товар добавлен в корзину', false);
+                        });
+                    }
+                    
+                    function removeFromFavorites(productId, type) {
+                        fetch('/api/favorites/remove', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ productId: productId, type: type })
+                        }).then(() => {
+                            showToastMobile('Удалено из избранного', false);
+                            setTimeout(() => location.reload(), 500);
+                        });
+                    }
+                    
+                    function showToastMobile(message, isError) {
+                        const toast = document.createElement('div');
+                        toast.className = 'toast-notification';
+                        toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' + 
+                            '<span>' + (isError ? '❌' : '✅') + '</span>' + 
+                            '<span>' + message + '</span>' + 
+                            '</div>';
+                        document.body.appendChild(toast);
+                        setTimeout(() => toast.remove(), 3000);
+                    }
+                </script>
+            `;
+            
+            res.send(renderMobilePage('Избранное', content, user, 'favorites'));
+        });
+    });
+});
 
 // ============================================================
 // ЗАПУСК СЕРВЕРА
