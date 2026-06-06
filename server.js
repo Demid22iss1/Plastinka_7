@@ -790,6 +790,9 @@ app.get("/", (req, res) => {
                                         </div>
                                         <div class="product-price">$${product.price}</div>
                                         <div class="product-actions">
+                                            <button class="action-btn" onclick="event.stopPropagation(); playTrack('${product.audio}', event)">
+                                                <i class="fas fa-headphones"></i>
+                                            </button>
                                             <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
                                                 <i class="fas fa-shopping-cart"></i>
                                             </button>
@@ -7128,6 +7131,42 @@ app.get("/favorites", requireAuth, (req, res) => {
         });
     });
 });
+let currentPlayingAudio = null;
+
+function playTrack(audioFile, event) {
+    event.stopPropagation();
+    if (!audioFile) {
+        showToastMobile('🎵 Аудиопревью недоступно', true);
+        return;
+    }
+    
+    // Если уже играет этот же трек — останавливаем
+    if (currentPlayingAudio && !currentPlayingAudio.paused) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio.currentTime = 0;
+        currentPlayingAudio = null;
+        return;
+    }
+    
+    // Останавливаем предыдущий трек
+    if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio.currentTime = 0;
+    }
+    
+    // Создаём и играем новый
+    const audio = new Audio('/audio/' + audioFile);
+    audio.play().catch(e => {
+        console.error('Audio play error:', e);
+        showToastMobile('Не удалось воспроизвести трек', true);
+    });
+    currentPlayingAudio = audio;
+    
+    // По окончании — очищаем
+    audio.onended = function() {
+        currentPlayingAudio = null;
+    };
+}
 
 // ============================================================
 // ЗАПУСК СЕРВЕРА
