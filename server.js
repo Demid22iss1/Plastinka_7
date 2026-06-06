@@ -6972,6 +6972,45 @@ app.get("/favorites", requireAuth, (req, res) => {
             
             const content = `
                 <style>
+                    /* Анимация пластинки для мобильной версии */
+                        .vinyl-animation {
+                            position: relative;
+                            aspect-ratio: 1;
+                            overflow: hidden;
+                            cursor: pointer;
+                        }
+                        .album-cover {
+                            position: relative;
+                            z-index: 2;
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            transition: transform 0.3s ease;
+                        }
+                        .vinyl-disc {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            z-index: 1;
+                            transition: opacity 0.3s ease;
+                            opacity: 0;
+                            animation: spin 5s linear infinite;
+                            animation-play-state: paused;
+                        }
+                        .vinyl-animation.active .album-cover {
+                            transform: translateX(50%);
+                        }
+                        .vinyl-animation.active .vinyl-disc {
+                            opacity: 1;
+                            animation-play-state: running;
+                        }
+                        @keyframes spin {
+                            from { transform: rotate(0deg); }
+                            to { transform: rotate(360deg); }
+                        }
                     .empty-favorites {
                         text-align: center;
                         padding: 60px 20px;
