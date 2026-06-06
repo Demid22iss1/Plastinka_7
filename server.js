@@ -776,11 +776,10 @@ app.get("/", (req, res) => {
                         products.forEach(product => {
                             content += `
                                 <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}">
-                                    <div class="product-image">
-                                        <img src="/uploads/${product.image}" alt="${escapeHtml(product.name)}">
-                                        <div class="vinyl-overlay">
-                                            <img src="/photo/plastinka-audio.png" class="vinyl-icon">
-                                        </div>
+                                    <div class="product-image vinyl-animation">
+                                        <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
+                                        <img src="/photo/plastinka-audio.png" class="vinyl-disc">
+                                        ${product.audio ? `<audio preload="none" style="display: none;" data-src="/audio/${product.audio}"></audio>` : ''}
                                     </div>
                                     <div class="product-info">
                                         <div class="product-name">${escapeHtml(product.name)}</div>
@@ -790,7 +789,7 @@ app.get("/", (req, res) => {
                                         </div>
                                         <div class="product-price">$${product.price}</div>
                                         <div class="product-actions">
-                                            <button class="action-btn" onclick="event.stopPropagation(); playTrack('${product.audio}', event)">
+                                            <button class="action-btn play-track" data-audio="${product.audio || ''}">
                                                 <i class="fas fa-headphones"></i>
                                             </button>
                                             <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
@@ -7167,6 +7166,33 @@ function playTrack(audioFile, event) {
         currentPlayingAudio = null;
     };
 }
+// Кнопка прослушивания (отдельно от анимации)
+document.querySelectorAll('.play-track').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const audioFile = this.dataset.audio;
+        if (!audioFile) {
+            showToastMobile('🎵 Аудиопревью недоступно', true);
+            return;
+        }
+        
+        if (window.currentTrackAudio && !window.currentTrackAudio.paused) {
+            window.currentTrackAudio.pause();
+            window.currentTrackAudio.currentTime = 0;
+            if (window.currentTrackAudio === audio) window.currentTrackAudio = null;
+        }
+        
+        const audio = new Audio('/audio/' + audioFile);
+        audio.play().catch(e => console.log('Audio play error:', e));
+        window.currentTrackAudio = audio;
+        
+        audio.onended = () => { window.currentTrackAudio = null; };
+        
+        // Визуальная обратная связь
+        this.style.transform = 'scale(0.9)';
+        setTimeout(() => { this.style.transform = ''; }, 200);
+    });
+});
 
 // ============================================================
 // ЗАПУСК СЕРВЕРА
