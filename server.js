@@ -774,35 +774,35 @@ app.get("/", (req, res) => {
                             <div class="products-grid">
                         `;
                         products.forEach(product => {
-                            content += `
-                                <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}">
-                                    <div class="product-image vinyl-animation">
-                                        <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
-                                        <img src="/photo/plastinka-audio.png" class="vinyl-disc">
-                                        ${product.audio ? `<audio preload="none" style="display: none;" data-src="/audio/${product.audio}"></audio>` : ''}
-                                    </div>
-                                    <div class="product-info">
-                                        <div class="product-name">${escapeHtml(product.name)}</div>
-                                        <div class="product-artist">${escapeHtml(product.artist)}</div>
-                                        <div class="rating-stars" data-product-id="${product.id}" data-rating="${product.avg_rating}">
-                                            ${generateStarRatingHTML(product.avg_rating, product.votes_count)}
-                                        </div>
-                                        <div class="product-price">$${product.price}</div>
-                                        <div class="product-actions">
-                                            <button class="action-btn play-track" data-audio="${product.audio || ''}">
-                                                <i class="fas fa-headphones"></i>
-                                            </button>
-                                            <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
-                                                <i class="fas fa-shopping-cart"></i>
-                                            </button>
-                                            <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${product.id}')">
-                                                <i class="fas fa-heart"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                        });
+    content += `
+        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}">
+            <div class="product-image vinyl-animation">
+                <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
+                <img src="/photo/plastinka-audio.png" class="vinyl-disc">
+                ${product.audio ? `<audio preload="none" style="display: none;" data-src="/audio/${product.audio}"></audio>` : ''}
+            </div>
+            <div class="product-info">
+                <div class="product-name">${escapeHtml(product.name)}</div>
+                <div class="product-artist">${escapeHtml(product.artist)}</div>
+                <div class="rating-stars" data-product-id="${product.id}" data-rating="${product.avg_rating}">
+                    ${generateStarRatingHTML(product.avg_rating, product.votes_count)}
+                </div>
+                <div class="product-price">$${product.price}</div>
+                <div class="product-actions">
+                    <button class="action-btn play-track" data-audio="${product.audio || ''}">
+                        <i class="fas fa-headphones"></i>
+                    </button>
+                    <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
+                        <i class="fas fa-shopping-cart"></i>
+                    </button>
+                    <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${product.id}')">
+                        <i class="fas fa-heart"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+});
                         content += `</div>`;
                         if (!user) content += `<div class="auth-prompt"><p>Войдите, чтобы добавлять товары в избранное и корзину</p><a href="/login" class="auth-btn">Войти</a></div>`;
                         
@@ -1081,6 +1081,54 @@ app.get("/", (req, res) => {
     font-weight: 500;
     backdrop-filter: blur(10px);
 }
+
+/* Анимация пластинки для мобильной версии */
+.vinyl-animation {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    cursor: pointer;
+}
+.album-cover {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+.vinyl-disc {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+    transition: opacity 0.3s ease;
+    opacity: 0;
+    animation: spin 5s linear infinite;
+    animation-play-state: paused;
+}
+.vinyl-animation.active .album-cover {
+    transform: translateX(50%);
+}
+.vinyl-animation.active .vinyl-disc {
+    opacity: 1;
+    animation-play-state: running;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.play-track {
+    background: rgba(255,122,47,0.2);
+    border: 1px solid #ff7a2f;
+}
+.play-track i {
+    color: #ff7a2f;
+}
+
 @keyframes slideInRight {
     to { transform: translateX(0); }
 }
@@ -7162,6 +7210,56 @@ app.get("/favorites", requireAuth, (req, res) => {
                         document.body.appendChild(toast);
                         setTimeout(() => toast.remove(), 3000);
                     }
+                    // Эффект пластинки при клике на карточку (мобильная версия)
+document.querySelectorAll('.vinyl-animation').forEach(container => {
+    let timeoutId = null;
+    
+    container.addEventListener('click', function(e) {
+        // Не срабатываем если кликнули по кнопкам действий
+        if (e.target.closest('.action-btn')) return;
+        
+        e.stopPropagation();
+        
+        // Убираем предыдущий таймаут
+        if (timeoutId) clearTimeout(timeoutId);
+        
+        // Добавляем класс active
+        this.classList.add('active');
+        
+        // Через 2 секунды возвращаем обратно
+        timeoutId = setTimeout(() => {
+            this.classList.remove('active');
+            timeoutId = null;
+        }, 2000);
+    });
+});
+
+// Кнопка прослушивания (отдельно от анимации)
+document.querySelectorAll('.play-track').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const audioFile = this.dataset.audio;
+        if (!audioFile) {
+            showToastMobile('🎵 Аудиопревью недоступно', true);
+            return;
+        }
+        
+        if (window.currentTrackAudio && !window.currentTrackAudio.paused) {
+            window.currentTrackAudio.pause();
+            window.currentTrackAudio.currentTime = 0;
+        }
+        
+        const audio = new Audio('/audio/' + audioFile);
+        audio.play().catch(e => console.log('Audio play error:', e));
+        window.currentTrackAudio = audio;
+        
+        audio.onended = () => { window.currentTrackAudio = null; };
+        
+        // Визуальная обратная связь
+        this.style.transform = 'scale(0.9)';
+        setTimeout(() => { this.style.transform = ''; }, 200);
+    });
+});
                 </script>
             `;
             
