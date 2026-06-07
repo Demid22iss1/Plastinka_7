@@ -416,6 +416,14 @@ app.get("/api/favorites/count", requireAuth, (req, res) => {
     });
 });
 
+// ============================================================
+// СТРАНИЦА ПОИСКА (редирект на каталог)
+// ============================================================
+app.get("/search", (req, res) => {
+    const query = req.query.q || '';
+    res.redirect(`/catalog?search=${encodeURIComponent(query)}`);
+});
+
 // API для получения списка избранного (новый endpoint для модального окна)
 app.get("/api/favorites/list", requireAuth, (req, res) => {
     const userId = req.session.user.id;
@@ -547,50 +555,37 @@ app.get("/api/user-avatar", requireAuth, (req, res) => {
 });
 
 // Обновление профиля пользователя
-app.post("/api/update-profile", requireAuth, express.json(), (req, res) => {
-    const { username, currentPassword, newPassword } = req.body;
-    const userId = req.session.user.id;
-    
-    db.get("SELECT * FROM users WHERE id = ?", [userId], (err, user) => {
-        if (err || !user) {
-            return res.status(404).json({ error: "Пользователь не найден" });
-        }
-        
-        if (username && username !== user.username) {
-            db.get("SELECT id FROM users WHERE username = ? AND id != ?", [username, userId], (err, existing) => {
-                if (existing) {
-                    return res.json({ success: false, error: "Имя пользователя уже занято" });
-                }
-                updateUser();
-            });
+function updateUser() {
+    // Проверяем, вошёл ли пользователь через Telegram
+    const isTelegramUser = !!user.telegram_id;
+    let updateQuery = "UPDATE users SET username = ? WHERE id = ?";
+    let params = [username || user.username, userId];
+
+    if (newPassword && newPassword.trim()) {
+        if (isTelegramUser) {
+            // Для Telegram-пользователя не проверяем текущий пароль
+            const hashedPassword = bcrypt.hashSync(newPassword, 10);
+            updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
+            params = [username || user.username, hashedPassword, userId];
+        } else if (currentPassword && bcrypt.compareSync(currentPassword, user.password)) {
+            const hashedPassword = bcrypt.hashSync(newPassword, 10);
+            updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
+            params = [username || user.username, hashedPassword, userId];
+        } else if (!currentPassword && !newPassword) {
+            // Ничего не делаем с паролем
         } else {
-            updateUser();
+            return res.json({ success: false, error: "Неверный текущий пароль" });
         }
-        
-        function updateUser() {
-            let updateQuery = "UPDATE users SET username = ? WHERE id = ?";
-            let params = [username || user.username, userId];
-            
-            if (currentPassword && newPassword) {
-                if (bcrypt.compareSync(currentPassword, user.password)) {
-                    const hashedPassword = bcrypt.hashSync(newPassword, 10);
-                    updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
-                    params = [username || user.username, hashedPassword, userId];
-                } else {
-                    return res.json({ success: false, error: "Неверный текущий пароль" });
-                }
-            }
-            
-            db.run(updateQuery, params, function(err) {
-                if (err) {
-                    return res.json({ success: false, error: "Ошибка обновления" });
-                }
-                req.session.user.username = username || user.username;
-                res.json({ success: true, username: req.session.user.username });
-            });
+    }
+
+    db.run(updateQuery, params, function(err) {
+        if (err) {
+            return res.json({ success: false, error: "Ошибка обновления" });
         }
+        req.session.user.username = username || user.username;
+        res.json({ success: true, username: req.session.user.username });
     });
-});
+}
 
 // ============================================================
 // API ДЛЯ РЕЙТИНГА (5 ЗВЁЗД С КОММЕНТАРИЯМИ)
@@ -913,49 +908,65 @@ app.get("/", (req, res) => {
                         });
                         
                         // Функции для обновления статуса корзины и избранного
-                        async function updateCartStatus(btn, productId) {
-                            try {
-                                const response = await fetch('/api/cart/status/' + productId);
-                                const data = await response.json();
-                                if (data.inCart) {
-                                    btn.style.background = '#ff0000';
-                                    btn.style.color = 'white';
-                                } else {
-                                    btn.style.background = '#333';
-                                    btn.style.color = 'white';
-                                }
-                            } catch(e) { console.error(e); }
-                        }
-                        
-                        async function updateFavoriteStatus(btn, productId) {
-                            try {
-                                const response = await fetch('/api/favorites/status/' + productId);
-                                const data = await response.json();
-                                if (data.isFavorite) {
-                                    btn.style.background = '#ff0000';
-                                    btn.style.color = 'white';
-                                } else {
-                                    btn.style.background = '#333';
-                                    btn.style.color = 'white';
-                                }
-                            } catch(e) { console.error(e); }
-                        }
-                        
-                        document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
-                            const productId = btn.dataset.id;
-                            if (productId) updateCartStatus(btn, productId);
-                            btn.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                fetch('/api/cart/add', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ id: productId })
-                                }).then(() => {
-                                    showToastMobile('Товар добавлен в корзину', false);
-                                    updateCartStatus(btn, productId);
-                                });
+                        async function updateCartStatusMobile(btn, productId) {
+                        try {
+                            const response = await fetch('/api/cart/status/' + productId);
+                            const data = await response.json();
+                            if (data.inCart) {
+                                btn.style.background = '#ff0000';
+                                btn.style.color = 'white';
+                            } else {
+                                btn.style.background = '#333';
+                                btn.style.color = 'white';
+                            }
+                        } catch(e) { console.error(e); }
+                    }
+
+                    async function updateFavoriteStatusMobile(btn, productId) {
+                        try {
+                            const response = await fetch('/api/favorites/status/' + productId);
+                            const data = await response.json();
+                            if (data.isFavorite) {
+                                btn.style.background = '#ff0000';
+                                btn.style.color = 'white';
+                            } else {
+                                btn.style.background = '#333';
+                                btn.style.color = 'white';
+                            }
+                        } catch(e) { console.error(e); }
+                    }
+
+                    document.querySelectorAll('.add-to-cart-btn-mobile').forEach(btn => {
+                        const productId = btn.dataset.id;
+                        if (productId) updateCartStatusMobile(btn, productId);
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            fetch('/api/cart/add', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: productId })
+                            }).then(() => {
+                                showToastMobile('Товар добавлен в корзину', false);
+                                updateCartStatusMobile(btn, productId);
                             });
                         });
+                    });
+
+                    document.querySelectorAll('.toggle-favorite-btn-mobile').forEach(btn => {
+                        const productId = btn.dataset.id;
+                        if (productId) updateFavoriteStatusMobile(btn, productId);
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            fetch('/api/favorites/toggle', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: productId })
+                            }).then(() => {
+                                updateFavoriteStatusMobile(btn, productId);
+                                showToastMobile('Избранное обновлено', false);
+                            });
+                        });
+                    });
                         
                         document.querySelectorAll('.toggle-favorite-btn').forEach(btn => {
                             const productId = btn.dataset.id;
@@ -4077,6 +4088,12 @@ app.get("/catalog", (req, res) => {
                                 <div class="product-image">
                                     <img src="${coverImage}" onerror="this.src='${DEFAULT_COVER}'">
                                     <div class="vinyl-overlay"><img src="/photo/plastinka-audio.png" class="vinyl-icon"></div>
+                                    <button class="action-btn add-to-cart-btn-mobile" data-id="product_123">
+                                        <i class="fas fa-shopping-cart"></i>
+                                    </button>
+                                    <button class="action-btn toggle-favorite-btn-mobile" data-id="product_123">
+                                        <i class="fas fa-heart"></i>
+                                    </button>
                                 </div>
                                 <div class="product-info">
                                     <div class="product-name">${escapeHtml(p.name)}</div>
