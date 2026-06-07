@@ -6950,6 +6950,7 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     .telegram-theme .top-bar,.telegram-theme .bottom-nav{background:var(--tg-theme-secondary-bg-color, #0a0a0a);}
     .telegram-theme .product-card{background:var(--tg-theme-secondary-bg-color, #1a1a1a);}
     @media (max-width: 480px){.products-grid{grid-template-columns:1fr;}}
+    
     </style>
     </head>
     <body class="telegram-theme">
