@@ -155,6 +155,17 @@ db.serialize(() => {
         UNIQUE(user_id, product_id)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    order_number TEXT UNIQUE,
+    total_price REAL,
+    items TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
     // Таблица favorites (избранное)
     db.run(`CREATE TABLE IF NOT EXISTS favorites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2318,6 +2329,11 @@ app.get("/profile", requireAuth, (req, res) => {
                         <div class="stat"><div class="stat-value">${favs ? favs.favs : 0}</div><div class="stat-label">Избранное</div></div>
                     </div>
                     <div class="profile-menu">
+                        <div class="menu-item" onclick="window.location='/orders'">
+                                <i class="fas fa-history"></i>
+                                <span>Мои заказы</span>
+                                <i class="fas fa-chevron-right arrow"></i>
+                            </div>
                         <div class="menu-item" onclick="openSettingsModal(event)"><i class="fas fa-user-edit"></i><span>Настройки аккаунта</span><i class="fas fa-chevron-right arrow"></i></div>
                         <div class="menu-item" onclick="openFavoritesModal()"><i class="fas fa-heart"></i><span>Избранное</span><i class="fas fa-chevron-right arrow"></i></div>
                         <div class="menu-item" onclick="openSettingsModal(event)"><i class="fas fa-credit-card"></i><span>Способы оплаты</span><i class="fas fa-chevron-right arrow"></i></div>
@@ -7234,32 +7250,7 @@ document.querySelectorAll('.vinyl-animation').forEach(container => {
     });
 });
 
-// Кнопка прослушивания (отдельно от анимации)
-document.querySelectorAll('.play-track').forEach(btn => {
-    btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const audioFile = this.dataset.audio;
-        if (!audioFile) {
-            showToastMobile('🎵 Аудиопревью недоступно', true);
-            return;
-        }
-        
-        if (window.currentTrackAudio && !window.currentTrackAudio.paused) {
-            window.currentTrackAudio.pause();
-            window.currentTrackAudio.currentTime = 0;
-        }
-        
-        const audio = new Audio('/audio/' + audioFile);
-        audio.play().catch(e => console.log('Audio play error:', e));
-        window.currentTrackAudio = audio;
-        
-        audio.onended = () => { window.currentTrackAudio = null; };
-        
-        // Визуальная обратная связь
-        this.style.transform = 'scale(0.9)';
-        setTimeout(() => { this.style.transform = ''; }, 200);
-    });
-});
+
                 </script>
             `;
             
@@ -7330,6 +7321,194 @@ document.querySelectorAll('.play-track').forEach(btn => {
         setTimeout(() => { this.style.transform = ''; }, 200);
     });
 });
+// ============================================================
+// API ДЛЯ ОФОРМЛЕНИЯ ЗАКАЗА (МОБИЛЬНАЯ ВЕРСИЯ)
+// ============================================================
+app.post("/api/order", requireAuth, (req, res) => {
+    const userId = req.session.user.id;
+    
+    db.all("SELECT * FROM carts WHERE user_id = ?", [userId], async (err, cartItems) => {
+        if (err || !cartItems || cartItems.length === 0) {
+            return res.json({ success: false, error: "Корзина пуста" });
+        }
+        
+        let totalPrice = 0;
+        let itemsList = [];
+        
+        for (const item of cartItems) {
+            const parts = item.product_id.split('_');
+            const type = parts[0];
+            const id = parts[1];
+            
+            if (type === 'product') {
+                const product = await new Promise(resolve => {
+                    db.get("SELECT name, artist, price FROM products WHERE id = ?", [id], (err, data) => resolve(data));
+                });
+                if (product) {
+                    const subtotal = product.price * item.quantity;
+                    totalPrice += subtotal;
+                    itemsList.push({
+                        product_id: item.product_id,
+                        name: product.name,
+                        artist: product.artist,
+                        price: product.price,
+                        quantity: item.quantity,
+                        subtotal: subtotal
+                    });
+                }
+            } else if (type === 'player') {
+                const player = await new Promise(resolve => {
+                    db.get("SELECT name, price FROM players WHERE id = ?", [id], (err, data) => resolve(data));
+                });
+                if (player) {
+                    const subtotal = player.price * item.quantity;
+                    totalPrice += subtotal;
+                    itemsList.push({
+                        product_id: item.product_id,
+                        name: player.name,
+                        artist: 'Проигрыватель',
+                        price: player.price,
+                        quantity: item.quantity,
+                        subtotal: subtotal
+                    });
+                }
+            }
+        }
+        
+        const orderNumber = "ORD-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
+        
+        db.run(
+            "INSERT INTO orders (user_id, order_number, total_price, items, status) VALUES (?, ?, ?, ?, ?)",
+            [userId, orderNumber, totalPrice, JSON.stringify(itemsList), 'pending'],
+            function(err) {
+                if (err) {
+                    console.error("Ошибка сохранения заказа:", err);
+                    return res.json({ success: false, error: "Ошибка сохранения заказа" });
+                }
+                
+                db.run("DELETE FROM carts WHERE user_id = ?", [userId], (err) => {
+                    if (err) {
+                        console.error("Ошибка очистки корзины:", err);
+                    }
+                    res.json({ success: true, orderNumber: orderNumber, totalPrice: totalPrice });
+                });
+            }
+        );
+    });
+});
+
+app.get("/orders", requireAuth, (req, res) => {
+    const user = req.session.user;
+    
+    db.all("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", [user.id], (err, orders) => {
+        let ordersHtml = '';
+        
+        if (orders && orders.length > 0) {
+            orders.forEach(order => {
+                let itemsHtml = '';
+                let items = [];
+                try {
+                    items = JSON.parse(order.items || '[]');
+                } catch(e) { items = []; }
+                
+                items.forEach(item => {
+                    itemsHtml += `<div class="order-item-product">${item.name} × ${item.quantity} — $${item.subtotal}</div>`;
+                });
+                
+                const statusText = order.status === 'pending' ? '⏳ Ожидает' : '✅ Оплачен';
+                const statusClass = order.status === 'pending' ? 'status-pending' : 'status-paid';
+                
+                ordersHtml += `
+                    <div class="order-card">
+                        <div class="order-header">
+                            <span class="order-number">${order.order_number}</span>
+                            <span class="order-status ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="order-date">${new Date(order.created_at).toLocaleDateString()}</div>
+                        <div class="order-items">${itemsHtml}</div>
+                        <div class="order-total">Итого: $${order.total_price}</div>
+                    </div>
+                `;
+            });
+        } else {
+            ordersHtml = '<div class="empty-state"><i class="fas fa-shopping-bag"></i><p>У вас пока нет заказов</p><a href="/catalog" class="empty-btn">В каталог</a></div>';
+        }
+        
+        const content = `
+            <style>
+                .order-card {
+                    background: #1a1a1a;
+                    border-radius: 16px;
+                    padding: 16px;
+                    margin-bottom: 16px;
+                    border: 1px solid #333;
+                }
+                .order-header {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 8px;
+                }
+                .order-number {
+                    font-weight: bold;
+                    color: #ff7a2f;
+                    font-size: 14px;
+                }
+                .order-status {
+                    font-size: 12px;
+                    padding: 4px 8px;
+                    border-radius: 20px;
+                }
+                .status-pending {
+                    background: rgba(255,122,47,0.2);
+                    color: #ff7a2f;
+                }
+                .status-paid {
+                    background: rgba(76,175,80,0.2);
+                    color: #4CAF50;
+                }
+                .order-date {
+                    font-size: 12px;
+                    color: #888;
+                    margin-bottom: 12px;
+                }
+                .order-items {
+                    margin: 12px 0;
+                    padding: 12px 0;
+                    border-top: 1px solid #333;
+                    border-bottom: 1px solid #333;
+                }
+                .order-item-product {
+                    font-size: 14px;
+                    margin-bottom: 6px;
+                }
+                .order-total {
+                    text-align: right;
+                    font-weight: bold;
+                    color: #ff0000;
+                    font-size: 16px;
+                }
+                .empty-state {
+                    text-align: center;
+                    padding: 60px 20px;
+                }
+                .empty-btn {
+                    display: inline-block;
+                    background: linear-gradient(45deg, #ff0000, #990000);
+                    color: white;
+                    padding: 12px 24px;
+                    border-radius: 30px;
+                    text-decoration: none;
+                    margin-top: 20px;
+                }
+            </style>
+            <h2 class="section-title">📦 Мои заказы</h2>
+            ${ordersHtml}
+        `;
+        
+        res.send(renderMobilePage('Мои заказы', content, user, 'profile'));
+    });
+});
+
 
 // ============================================================
 // ЗАПУСК СЕРВЕРА
