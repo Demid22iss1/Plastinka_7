@@ -568,14 +568,23 @@ app.post("/api/update-profile", requireAuth, express.json(), (req, res) => {
         }
         
         function updateUser() {
+            // Проверяем, вошёл ли пользователь через Telegram
+            const isTelegramUser = !!user.telegram_id;
             let updateQuery = "UPDATE users SET username = ? WHERE id = ?";
             let params = [username || user.username, userId];
-            
-            if (currentPassword && newPassword) {
-                if (bcrypt.compareSync(currentPassword, user.password)) {
+
+            if (newPassword && newPassword.trim()) {
+                if (isTelegramUser) {
+                    // Для Telegram-пользователя не проверяем текущий пароль
                     const hashedPassword = bcrypt.hashSync(newPassword, 10);
                     updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
                     params = [username || user.username, hashedPassword, userId];
+                } else if (currentPassword && bcrypt.compareSync(currentPassword, user.password)) {
+                    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+                    updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
+                    params = [username || user.username, hashedPassword, userId];
+                } else if (!currentPassword && !newPassword) {
+                    // Ничего не делаем с паролем
                 } else {
                     return res.json({ success: false, error: "Неверный текущий пароль" });
                 }
@@ -725,9 +734,9 @@ app.get("/api/search", (req, res) => {
         });
 });
 
-app.get("/search-page", (req, res) => {
+app.get("/search", (req, res) => {
     const query = req.query.q || '';
-    res.redirect(`/search?q=${encodeURIComponent(query)}`);
+    res.redirect(`/catalog?search=${encodeURIComponent(query)}`);
 });
 
 // ============================================================
@@ -877,113 +886,152 @@ app.get("/", (req, res) => {
                         `;
                         
                         // Добавляем скрипты для долгого нажатия и обновления статуса
-                        content += `
-                        <script>
-                        // Долгое нажатие для воспроизведения аудио
-                        let longPressTimer = null;
-                        document.querySelectorAll('.vinyl-animation').forEach(container => {
-                            const audioFile = container.querySelector('audio')?.getAttribute('data-src');
-                            if (!audioFile) return;
-                            
-                            container.addEventListener('touchstart', function(e) {
-                                longPressTimer = setTimeout(() => {
-                                    // Воспроизводим музыку
-                                    const audio = new Audio(audioFile);
-                                    audio.play().catch(e => console.log('Audio play error:', e));
-                                    // Добавляем визуальный эффект
-                                    this.classList.add('active');
-                                    setTimeout(() => this.classList.remove('active'), 2000);
-                                    longPressTimer = null;
-                                }, 500);
-                            });
-                            
-                            container.addEventListener('touchend', function() {
-                                if (longPressTimer) {
-                                    clearTimeout(longPressTimer);
-                                    longPressTimer = null;
-                                }
-                            });
-                            
-                            container.addEventListener('touchmove', function() {
-                                if (longPressTimer) {
-                                    clearTimeout(longPressTimer);
-                                    longPressTimer = null;
-                                }
-                            });
-                        });
-                        
-                        // Функции для обновления статуса корзины и избранного
-                        async function updateCartStatus(btn, productId) {
-                            try {
-                                const response = await fetch('/api/cart/status/' + productId);
-                                const data = await response.json();
-                                if (data.inCart) {
-                                    btn.style.background = '#ff0000';
-                                    btn.style.color = 'white';
-                                } else {
-                                    btn.style.background = '#333';
-                                    btn.style.color = 'white';
-                                }
-                            } catch(e) { console.error(e); }
-                        }
-                        
-                        async function updateFavoriteStatus(btn, productId) {
-                            try {
-                                const response = await fetch('/api/favorites/status/' + productId);
-                                const data = await response.json();
-                                if (data.isFavorite) {
-                                    btn.style.background = '#ff0000';
-                                    btn.style.color = 'white';
-                                } else {
-                                    btn.style.background = '#333';
-                                    btn.style.color = 'white';
-                                }
-                            } catch(e) { console.error(e); }
-                        }
-                        
-                        document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
-                            const productId = btn.dataset.id;
-                            if (productId) updateCartStatus(btn, productId);
-                            btn.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                fetch('/api/cart/add', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ id: productId })
-                                }).then(() => {
-                                    showToastMobile('Товар добавлен в корзину', false);
-                                    updateCartStatus(btn, productId);
-                                });
-                            });
-                        });
-                        
-                        document.querySelectorAll('.toggle-favorite-btn').forEach(btn => {
-                            const productId = btn.dataset.id;
-                            if (productId) updateFavoriteStatus(btn, productId);
-                            btn.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                fetch('/api/favorites/toggle', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ id: productId })
-                                }).then(() => {
-                                    updateFavoriteStatus(btn, productId);
-                                    showToastMobile('Избранное обновлено', false);
-                                });
-                            });
-                        });
-                        
-                        function showToastMobile(message, isError) {
-                            const toast = document.createElement('div');
-                            toast.className = 'toast-notification';
-                            toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' + 
-                                '<span>' + (isError ? '❌' : '✅') + '</span>' + 
-                                '<span>' + message + '</span>' + 
-                                '</div>';
-                            document.body.appendChild(toast);
-                            setTimeout(() => toast.remove(), 3000);
-                        }
-                        </script>
+                        // Скрипты для мобильной версии с правильным воспроизведением звука
+content += `
+<script>
+// Долгое нажатие для воспроизведения аудио
+let longPressTimer = null;
+let currentPlayingAudio = null;
+
+document.querySelectorAll('.vinyl-animation').forEach(container => {
+    const audioElement = container.querySelector('audio');
+    const audioFile = audioElement ? audioElement.getAttribute('data-src') : null;
+    if (!audioFile) return;
+    
+    container.addEventListener('touchstart', function(e) {
+        longPressTimer = setTimeout(() => {
+            // Останавливаем предыдущий аудио
+            if (currentPlayingAudio) {
+                currentPlayingAudio.pause();
+                currentPlayingAudio = null;
+            }
+            // Создаём и воспроизводим новый
+            const audio = new Audio(audioFile);
+            audio.play().catch(e => console.log('Audio play error:', e));
+            currentPlayingAudio = audio;
+            
+            // Добавляем визуальный эффект
+            this.classList.add('active');
+            setTimeout(() => this.classList.remove('active'), 2000);
+            longPressTimer = null;
+        }, 500);
+    });
+    
+    container.addEventListener('touchend', function() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+    
+    container.addEventListener('touchmove', function() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+});
+
+// Кнопка для ручного воспроизведения трека
+document.querySelectorAll('.play-track').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const audioFile = this.dataset.audio;
+        if (!audioFile) {
+            showToastMobile('🎵 Аудиопревью недоступно', true);
+            return;
+        }
+        
+        if (currentPlayingAudio) {
+            currentPlayingAudio.pause();
+            currentPlayingAudio = null;
+        }
+        
+        const audio = new Audio('/audio/' + audioFile);
+        audio.play().catch(e => {
+            console.log('Audio play error:', e);
+            showToastMobile('Не удалось воспроизвести трек', true);
+        });
+        currentPlayingAudio = audio;
+        
+        // Визуальная обратная связь
+        this.style.transform = 'scale(0.9)';
+        setTimeout(() => { this.style.transform = ''; }, 200);
+    });
+});
+
+// Функции для обновления статуса корзины и избранного
+async function updateCartStatus(btn, productId) {
+    try {
+        const response = await fetch('/api/cart/status/' + productId);
+        const data = await response.json();
+        if (data.inCart) {
+            btn.style.background = '#ff0000';
+            btn.style.color = 'white';
+        } else {
+            btn.style.background = '#333';
+            btn.style.color = 'white';
+        }
+    } catch(e) { console.error(e); }
+}
+
+async function updateFavoriteStatus(btn, productId) {
+    try {
+        const response = await fetch('/api/favorites/status/' + productId);
+        const data = await response.json();
+        if (data.isFavorite) {
+            btn.style.background = '#ff0000';
+            btn.style.color = 'white';
+        } else {
+            btn.style.background = '#333';
+            btn.style.color = 'white';
+        }
+    } catch(e) { console.error(e); }
+}
+
+document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
+    const productId = btn.dataset.id;
+    if (productId) updateCartStatus(btn, productId);
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fetch('/api/cart/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: productId })
+        }).then(() => {
+            showToastMobile('Товар добавлен в корзину', false);
+            updateCartStatus(btn, productId);
+        });
+    });
+});
+
+document.querySelectorAll('.toggle-favorite-btn').forEach(btn => {
+    const productId = btn.dataset.id;
+    if (productId) updateFavoriteStatus(btn, productId);
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fetch('/api/favorites/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: productId })
+        }).then(() => {
+            updateFavoriteStatus(btn, productId);
+            showToastMobile('Избранное обновлено', false);
+        });
+    });
+});
+
+function showToastMobile(message, isError) {
+    const toast = document.createElement('div');
+    toast.className = 'toast-notification';
+    toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' + 
+        '<span>' + (isError ? '❌' : '✅') + '</span>' + 
+        '<span>' + message + '</span>' + 
+        '</div>';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+</script>
                         `;
                         
                         res.send(renderMobilePage('Главная', content, user, 'home', showNotification));
