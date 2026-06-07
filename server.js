@@ -416,14 +416,6 @@ app.get("/api/favorites/count", requireAuth, (req, res) => {
     });
 });
 
-// ============================================================
-// СТРАНИЦА ПОИСКА (редирект на каталог)
-// ============================================================
-app.get("/search", (req, res) => {
-    const query = req.query.q || '';
-    res.redirect(`/catalog?search=${encodeURIComponent(query)}`);
-});
-
 // API для получения списка избранного (новый endpoint для модального окна)
 app.get("/api/favorites/list", requireAuth, (req, res) => {
     const userId = req.session.user.id;
@@ -555,37 +547,50 @@ app.get("/api/user-avatar", requireAuth, (req, res) => {
 });
 
 // Обновление профиля пользователя
-function updateUser() {
-    // Проверяем, вошёл ли пользователь через Telegram
-    const isTelegramUser = !!user.telegram_id;
-    let updateQuery = "UPDATE users SET username = ? WHERE id = ?";
-    let params = [username || user.username, userId];
-
-    if (newPassword && newPassword.trim()) {
-        if (isTelegramUser) {
-            // Для Telegram-пользователя не проверяем текущий пароль
-            const hashedPassword = bcrypt.hashSync(newPassword, 10);
-            updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
-            params = [username || user.username, hashedPassword, userId];
-        } else if (currentPassword && bcrypt.compareSync(currentPassword, user.password)) {
-            const hashedPassword = bcrypt.hashSync(newPassword, 10);
-            updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
-            params = [username || user.username, hashedPassword, userId];
-        } else if (!currentPassword && !newPassword) {
-            // Ничего не делаем с паролем
+app.post("/api/update-profile", requireAuth, express.json(), (req, res) => {
+    const { username, currentPassword, newPassword } = req.body;
+    const userId = req.session.user.id;
+    
+    db.get("SELECT * FROM users WHERE id = ?", [userId], (err, user) => {
+        if (err || !user) {
+            return res.status(404).json({ error: "Пользователь не найден" });
+        }
+        
+        if (username && username !== user.username) {
+            db.get("SELECT id FROM users WHERE username = ? AND id != ?", [username, userId], (err, existing) => {
+                if (existing) {
+                    return res.json({ success: false, error: "Имя пользователя уже занято" });
+                }
+                updateUser();
+            });
         } else {
-            return res.json({ success: false, error: "Неверный текущий пароль" });
+            updateUser();
         }
-    }
-
-    db.run(updateQuery, params, function(err) {
-        if (err) {
-            return res.json({ success: false, error: "Ошибка обновления" });
+        
+        function updateUser() {
+            let updateQuery = "UPDATE users SET username = ? WHERE id = ?";
+            let params = [username || user.username, userId];
+            
+            if (currentPassword && newPassword) {
+                if (bcrypt.compareSync(currentPassword, user.password)) {
+                    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+                    updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
+                    params = [username || user.username, hashedPassword, userId];
+                } else {
+                    return res.json({ success: false, error: "Неверный текущий пароль" });
+                }
+            }
+            
+            db.run(updateQuery, params, function(err) {
+                if (err) {
+                    return res.json({ success: false, error: "Ошибка обновления" });
+                }
+                req.session.user.username = username || user.username;
+                res.json({ success: true, username: req.session.user.username });
+            });
         }
-        req.session.user.username = username || user.username;
-        res.json({ success: true, username: req.session.user.username });
     });
-}
+});
 
 // ============================================================
 // API ДЛЯ РЕЙТИНГА (5 ЗВЁЗД С КОММЕНТАРИЯМИ)
@@ -799,7 +804,7 @@ app.get("/", (req, res) => {
                             content += `
         <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}" data-product-id-for-api="${productIdForApi}">
             <div class="product-image vinyl-animation">
-                <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)} onerror="this.src='/uploads/666.png'">
+                <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
                 <img src="/photo/plastinka-audio.png" class="vinyl-disc">
                 ${product.audio ? `<audio preload="none" style="display: none;" data-src="/audio/${product.audio}"></audio>` : ''}
             </div>
@@ -908,65 +913,49 @@ app.get("/", (req, res) => {
                         });
                         
                         // Функции для обновления статуса корзины и избранного
-                        async function updateCartStatusMobile(btn, productId) {
-                        try {
-                            const response = await fetch('/api/cart/status/' + productId);
-                            const data = await response.json();
-                            if (data.inCart) {
-                                btn.style.background = '#ff0000';
-                                btn.style.color = 'white';
-                            } else {
-                                btn.style.background = '#333';
-                                btn.style.color = 'white';
-                            }
-                        } catch(e) { console.error(e); }
-                    }
-
-                    async function updateFavoriteStatusMobile(btn, productId) {
-                        try {
-                            const response = await fetch('/api/favorites/status/' + productId);
-                            const data = await response.json();
-                            if (data.isFavorite) {
-                                btn.style.background = '#ff0000';
-                                btn.style.color = 'white';
-                            } else {
-                                btn.style.background = '#333';
-                                btn.style.color = 'white';
-                            }
-                        } catch(e) { console.error(e); }
-                    }
-
-                    document.querySelectorAll('.add-to-cart-btn-mobile').forEach(btn => {
-                        const productId = btn.dataset.id;
-                        if (productId) updateCartStatusMobile(btn, productId);
-                        btn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            fetch('/api/cart/add', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ id: productId })
-                            }).then(() => {
-                                showToastMobile('Товар добавлен в корзину', false);
-                                updateCartStatusMobile(btn, productId);
+                        async function updateCartStatus(btn, productId) {
+                            try {
+                                const response = await fetch('/api/cart/status/' + productId);
+                                const data = await response.json();
+                                if (data.inCart) {
+                                    btn.style.background = '#ff0000';
+                                    btn.style.color = 'white';
+                                } else {
+                                    btn.style.background = '#333';
+                                    btn.style.color = 'white';
+                                }
+                            } catch(e) { console.error(e); }
+                        }
+                        
+                        async function updateFavoriteStatus(btn, productId) {
+                            try {
+                                const response = await fetch('/api/favorites/status/' + productId);
+                                const data = await response.json();
+                                if (data.isFavorite) {
+                                    btn.style.background = '#ff0000';
+                                    btn.style.color = 'white';
+                                } else {
+                                    btn.style.background = '#333';
+                                    btn.style.color = 'white';
+                                }
+                            } catch(e) { console.error(e); }
+                        }
+                        
+                        document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
+                            const productId = btn.dataset.id;
+                            if (productId) updateCartStatus(btn, productId);
+                            btn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                fetch('/api/cart/add', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: productId })
+                                }).then(() => {
+                                    showToastMobile('Товар добавлен в корзину', false);
+                                    updateCartStatus(btn, productId);
+                                });
                             });
                         });
-                    });
-
-                    document.querySelectorAll('.toggle-favorite-btn-mobile').forEach(btn => {
-                        const productId = btn.dataset.id;
-                        if (productId) updateFavoriteStatusMobile(btn, productId);
-                        btn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            fetch('/api/favorites/toggle', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ id: productId })
-                            }).then(() => {
-                                updateFavoriteStatusMobile(btn, productId);
-                                showToastMobile('Избранное обновлено', false);
-                            });
-                        });
-                    });
                         
                         document.querySelectorAll('.toggle-favorite-btn').forEach(btn => {
                             const productId = btn.dataset.id;
@@ -1014,7 +1003,7 @@ app.get("/", (req, res) => {
      data-product-genre="${escapeHtml(product.genre || 'Rock')}"
      data-product-year="${escapeHtml(product.year || '1970')}">
     <div class="image-container">
-        <img src="/uploads/${product.image}" class="graf" onerror="this.src='/uploads/666.png'>
+        <img src="/uploads/${product.image}" class="graf">
         <img src="/photo/plastinka-audio.png" class="plastinka">
         ${product.audio ? `<audio class="album-audio" src="/audio/${product.audio}" preload="auto"></audio>` : ""}
     </div>
@@ -4088,12 +4077,6 @@ app.get("/catalog", (req, res) => {
                                 <div class="product-image">
                                     <img src="${coverImage}" onerror="this.src='${DEFAULT_COVER}'">
                                     <div class="vinyl-overlay"><img src="/photo/plastinka-audio.png" class="vinyl-icon"></div>
-                                    <button class="action-btn add-to-cart-btn-mobile" data-id="product_123">
-                                        <i class="fas fa-shopping-cart"></i>
-                                    </button>
-                                    <button class="action-btn toggle-favorite-btn-mobile" data-id="product_123">
-                                        <i class="fas fa-heart"></i>
-                                    </button>
                                 </div>
                                 <div class="product-info">
                                     <div class="product-name">${escapeHtml(p.name)}</div>
@@ -6950,7 +6933,6 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     .telegram-theme .top-bar,.telegram-theme .bottom-nav{background:var(--tg-theme-secondary-bg-color, #0a0a0a);}
     .telegram-theme .product-card{background:var(--tg-theme-secondary-bg-color, #1a1a1a);}
     @media (max-width: 480px){.products-grid{grid-template-columns:1fr;}}
-    
     </style>
     </head>
     <body class="telegram-theme">
