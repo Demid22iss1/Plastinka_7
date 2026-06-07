@@ -7331,6 +7331,59 @@ document.querySelectorAll('.play-track').forEach(btn => {
     });
 });
 
+app.get("/admin/settings", requireAdmin, (req, res) => {
+    db.get("SELECT value FROM site_settings WHERE key = 'homepage_products'", [], (err, setting) => {
+        const currentMode = setting ? setting.value : 'last_added';
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"><title>Настройки главной</title>
+            <style>
+                body{background:#0f0f0f;color:#fff;font-family:sans-serif;padding:20px;}
+                .container{max-width:500px;margin:0 auto;background:#1a1a1a;padding:30px;border-radius:16px;}
+                h1{color:#ff0000;margin-bottom:20px;}
+                .option{margin:15px 0;padding:15px;background:#222;border-radius:8px;cursor:pointer;}
+                .option.selected{border:2px solid #ff0000;background:#2a2a2a;}
+                .save-btn{width:100%;padding:12px;background:linear-gradient(45deg,#ff0000,#990000);border:none;border-radius:8px;color:white;font-weight:bold;cursor:pointer;margin-top:20px;}
+                .back{display:block;margin-top:20px;color:#aaa;text-align:center;}
+            </style>
+            </head>
+            <body>
+            <div class="container">
+                <h1>⚙️ Настройка главной страницы</h1>
+                <form action="/admin/settings" method="POST">
+                    <div class="option ${currentMode === 'last_added' ? 'selected' : ''}" onclick="selectOption('last_added')">
+                        <input type="radio" name="homepage_products" value="last_added" id="last_added" ${currentMode === 'last_added' ? 'checked' : ''} style="margin-right:10px;">
+                        <label for="last_added"><strong>Последние добавленные</strong><br><small>Показывать 6 последних пластинок</small></label>
+                    </div>
+                    <div class="option ${currentMode === 'all' ? 'selected' : ''}" onclick="selectOption('all')">
+                        <input type="radio" name="homepage_products" value="all" id="all" ${currentMode === 'all' ? 'checked' : ''} style="margin-right:10px;">
+                        <label for="all"><strong>Все пластинки</strong><br><small>Показывать все пластинки (до 12)</small></label>
+                    </div>
+                    <button type="submit" class="save-btn">Сохранить настройки</button>
+                </form>
+                <a href="/admin" class="back">← Вернуться в админ панель</a>
+            </div>
+            <script>
+                function selectOption(value) {
+                    document.getElementById(value).checked = true;
+                    document.querySelectorAll('.option').forEach(opt => opt.classList.remove('selected'));
+                    event.currentTarget.classList.add('selected');
+                }
+            </script>
+            </body>
+            </html>
+        `);
+    });
+});
+
+app.post("/admin/settings", requireAdmin, (req, res) => {
+    const { homepage_products } = req.body;
+    db.run("INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)", ['homepage_products', homepage_products], (err) => {
+        res.redirect("/admin/settings?saved=1");
+    });
+});
+
 // ============================================================
 // ЗАПУСК СЕРВЕРА
 // ============================================================
