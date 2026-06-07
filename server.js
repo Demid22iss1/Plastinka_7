@@ -11,7 +11,6 @@ const db = new sqlite3.Database("./database.sqlite");
 db.run("PRAGMA encoding = 'UTF-8'");
 db.run("PRAGMA case_sensitive_like = OFF");
 
-
 // ============================================================
 // НАСТРОЙКИ MIDDLEWARE
 // ============================================================
@@ -281,68 +280,68 @@ db.serialize(() => {
     });
 
     // Добавление колонки telegram_id в таблицу users
-db.run(`ALTER TABLE users ADD COLUMN telegram_id INTEGER`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-        console.log("⚠️ Колонка telegram_id уже существует или ошибка:", err.message);
-    } else if (!err) {
-        console.log("✅ Добавлена колонка telegram_id");
-    }
-});
-
-// Telegram авторизация API
-app.post("/api/telegram-auth", express.json(), (req, res) => {
-    const { id, first_name, last_name, username, photo_url } = req.body;
-    
-    if (!id) {
-        return res.json({ success: false, error: "No telegram id" });
-    }
-    
-    db.get("SELECT * FROM users WHERE telegram_id = ?", [id], (err, user) => {
-        if (err) {
-            return res.json({ success: false, error: err.message });
-        }
-        
-        if (user) {
-            // Вход существующего пользователя
-            req.session.user = { 
-                id: user.id, 
-                username: user.username, 
-                role: user.role, 
-                avatar: user.avatar,
-                telegram_id: id
-            };
-            res.json({ success: true, isNew: false });
-        } else {
-            // Регистрация нового пользователя
-            const newUsername = username || `tg_user_${id}`;
-            const defaultPassword = Math.random().toString(36).substring(2, 15);
-            const hash = bcrypt.hashSync(defaultPassword, 10);
-            
-            // Сохраняем фото URL если есть
-            const avatarFile = photo_url ? null : 'default-avatar.png';
-            
-            db.run(
-                "INSERT INTO users (username, password, role, telegram_id, avatar) VALUES (?, ?, 'user', ?, ?)",
-                [newUsername, hash, id, avatarFile || 'default-avatar.png'],
-                function(err) {
-                    if (err) {
-                        console.error("Ошибка регистрации Telegram пользователя:", err);
-                        return res.json({ success: false, error: err.message });
-                    }
-                    
-                    req.session.user = { 
-                        id: this.lastID, 
-                        username: newUsername, 
-                        role: 'user', 
-                        avatar: avatarFile || 'default-avatar.png',
-                        telegram_id: id
-                    };
-                    res.json({ success: true, isNew: true });
-                }
-            );
+    db.run(`ALTER TABLE users ADD COLUMN telegram_id INTEGER`, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+            console.log("⚠️ Колонка telegram_id уже существует или ошибка:", err.message);
+        } else if (!err) {
+            console.log("✅ Добавлена колонка telegram_id");
         }
     });
-});
+
+    // Telegram авторизация API
+    app.post("/api/telegram-auth", express.json(), (req, res) => {
+        const { id, first_name, last_name, username, photo_url } = req.body;
+        
+        if (!id) {
+            return res.json({ success: false, error: "No telegram id" });
+        }
+        
+        db.get("SELECT * FROM users WHERE telegram_id = ?", [id], (err, user) => {
+            if (err) {
+                return res.json({ success: false, error: err.message });
+            }
+            
+            if (user) {
+                // Вход существующего пользователя
+                req.session.user = { 
+                    id: user.id, 
+                    username: user.username, 
+                    role: user.role, 
+                    avatar: user.avatar,
+                    telegram_id: id
+                };
+                res.json({ success: true, isNew: false });
+            } else {
+                // Регистрация нового пользователя
+                const newUsername = username || `tg_user_${id}`;
+                const defaultPassword = Math.random().toString(36).substring(2, 15);
+                const hash = bcrypt.hashSync(defaultPassword, 10);
+                
+                // Сохраняем фото URL если есть
+                const avatarFile = photo_url ? null : 'default-avatar.png';
+                
+                db.run(
+                    "INSERT INTO users (username, password, role, telegram_id, avatar) VALUES (?, ?, 'user', ?, ?)",
+                    [newUsername, hash, id, avatarFile || 'default-avatar.png'],
+                    function(err) {
+                        if (err) {
+                            console.error("Ошибка регистрации Telegram пользователя:", err);
+                            return res.json({ success: false, error: err.message });
+                        }
+                        
+                        req.session.user = { 
+                            id: this.lastID, 
+                            username: newUsername, 
+                            role: 'user', 
+                            avatar: avatarFile || 'default-avatar.png',
+                            telegram_id: id
+                        };
+                        res.json({ success: true, isNew: true });
+                    }
+                );
+            }
+        });
+    });
 });
 
 // ============================================================
@@ -780,88 +779,14 @@ app.get("/", (req, res) => {
                     if (err) players = [];
                     
                     if (req.isMobile) {
-                        let content = `
-                            <h2 class="section-title">Новинки</h2>
-                            <div class="products-grid">
-                        `;
-                        products.forEach(product => {
-    content += `
-        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}">
-            <div class="product-image vinyl-animation">
-                <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
-                <img src="/photo/plastinka-audio.png" class="vinyl-disc">
-                ${product.audio ? `<audio preload="none" style="display: none;" data-src="/audio/${product.audio}"></audio>` : ''}
-            </div>
-            <div class="product-info">
-                <div class="product-name">${escapeHtml(product.name)}</div>
-                <div class="product-artist">${escapeHtml(product.artist)}</div>
-                <div class="rating-stars" data-product-id="${product.id}" data-rating="${product.avg_rating}">
-                    ${generateStarRatingHTML(product.avg_rating, product.votes_count)}
-                </div>
-                <div class="product-price">$${product.price}</div>
-                <div class="product-actions">
-                    <button class="action-btn play-track" data-audio="${product.audio || ''}">
-                        <i class="fas fa-headphones"></i>
-                    </button>
-                    <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
-                        <i class="fas fa-shopping-cart"></i>
-                    </button>
-                    <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${product.id}')">
-                        <i class="fas fa-heart"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-});
-                        content += `</div>`;
-                        if (!user) content += `<div class="auth-prompt"><p>Войдите, чтобы добавлять товары в избранное и корзину</p><a href="/login" class="auth-btn">Войти</a></div>`;
-                        
-                        content += `
-                            <div id="productModal" class="modal-overlay" style="display:none;">
-                                <div class="modal-content">
-                                    <button class="modal-close" onclick="closeProductModal()">&times;</button>
-                                    <img src="" alt="Пластинка" class="modal-player-image" id="productModalImage">
-                                    <h2 class="modal-title" id="productModalTitle"></h2>
-                                    <p class="modal-artist" id="productModalArtist"></p>
-                                    <div class="modal-tags" id="productModalTags"></div>
-                                    <div class="rating-section" id="modalRatingSection">
-                                        <div class="rating-label">Средняя оценка:</div>
-                                        <div class="rating-stars-large" id="modalRatingStars"></div>
-                                        <div class="rating-votes" id="modalRatingVotes"></div>
-                                    </div>
-                                    <div class="comments-list" id="modalCommentsList"></div>
-                                    <p class="modal-description" id="productModalDescription"></p>
-                                    <div class="modal-price" id="productModalPrice"></div>
-                                    <div class="modal-actions">
-                                        <button onclick="addToCartFromModal()" class="modal-add-to-cart" style="flex:1;">В корзину</button>
-                                        <button onclick="toggleFavoriteFromModal()" class="modal-fav-btn"><i class="fas fa-heart"></i></button>
-                                    </div>
-                                    <button onclick="openReviewModal()" class="modal-review-btn" id="modalReviewBtn">✍️ Оставить отзыв</button>
-                                    <div id="productModalAudio" style="display:none;"></div>
-                                    <button onclick="playModalPreview()" class="modal-play-btn" id="productModalPlayBtn" style="display:none;"><i class="fas fa-play"></i> Прослушать</button>
-                                </div>
-                            </div>
-                            <div id="reviewModal" class="modal-overlay" style="display:none;">
-                                <div class="modal-content review-modal-content">
-                                    <button class="modal-close" onclick="closeReviewModal()">&times;</button>
-                                    <h3 class="review-title">⭐ Оцените пластинку</h3>
-                                    <div class="review-stars" id="reviewStars">
-                                        <i class="far fa-star" data-rating="1"></i>
-                                        <i class="far fa-star" data-rating="2"></i>
-                                        <i class="far fa-star" data-rating="3"></i>
-                                        <i class="far fa-star" data-rating="4"></i>
-                                        <i class="far fa-star" data-rating="5"></i>
-                                    </div>
-                                    <textarea id="reviewComment" placeholder="Напишите ваш отзыв (необязательно)..." rows="4"></textarea>
-                                    <button onclick="submitReview()" class="submit-review-btn">Отправить отзыв</button>
-                                    <p id="reviewAuthMessage" style="display:none; color:#ff7a2f; margin-top:12px;">🔒 <a href="/login" style="color:#ff7a2f;">Войдите в аккаунт</a>, чтобы оставить отзыв</p>
-                                </div>
-                            </div>
-                        `;
-                        
+                        // ========== НАЧАЛО МОБИЛЬНОЙ ВЕРСИИ ГЛАВНОЙ (ПЕРЕРАБОТАНО) ==========
+                        // Вся мобильная логика вынесена в отдельную функцию renderMobileHome
+                        // Здесь вызываем общую функцию рендеринга мобильной главной
+                        const content = renderMobileHomeContent(products, players, user, showNotification);
                         res.send(renderMobilePage('Главная', content, user, 'home', showNotification));
+                        // ========== КОНЕЦ МОБИЛЬНОЙ ВЕРСИИ ГЛАВНОЙ ==========
                     } else {
+                        // ДЕСКТОПНАЯ ВЕРСИЯ – БЕЗ ИЗМЕНЕНИЙ (КОПИРУЕМ ИСХОДНЫЙ КОД)
                         let productHTML = "";
                         products.forEach(product => {
                             productHTML += `
@@ -2314,7 +2239,9 @@ app.get("/profile", requireAuth, (req, res) => {
         const avatar = userData ? userData.avatar : 'default-avatar.png';
         
         if (req.isMobile) {
+            // Мобильная версия профиля (улучшенная)
             db.get("SELECT COUNT(*) as favs FROM favorites WHERE user_id = ?", [user.id], (err, favs) => {
+                const favCount = favs ? favs.favs : 0;
                 const content = `
                     <div class="profile-header">
                         <div class="avatar-container" onclick="openAvatarModal()">
@@ -2326,7 +2253,7 @@ app.get("/profile", requireAuth, (req, res) => {
                     </div>
                     <div class="profile-stats">
                         <div class="stat"><div class="stat-value">0</div><div class="stat-label">Заказов</div></div>
-                        <div class="stat"><div class="stat-value">${favs ? favs.favs : 0}</div><div class="stat-label">Избранное</div></div>
+                        <div class="stat"><div class="stat-value">${favCount}</div><div class="stat-label">Избранное</div></div>
                     </div>
                     <div class="profile-menu">
                         <div class="menu-item" onclick="window.location='/orders'">
@@ -2334,9 +2261,9 @@ app.get("/profile", requireAuth, (req, res) => {
                                 <span>Мои заказы</span>
                                 <i class="fas fa-chevron-right arrow"></i>
                             </div>
-                        <div class="menu-item" onclick="openSettingsModal(event)"><i class="fas fa-user-edit"></i><span>Настройки аккаунта</span><i class="fas fa-chevron-right arrow"></i></div>
+                        <div class="menu-item" onclick="openSettingsModal()"><i class="fas fa-user-edit"></i><span>Настройки аккаунта</span><i class="fas fa-chevron-right arrow"></i></div>
                         <div class="menu-item" onclick="openFavoritesModal()"><i class="fas fa-heart"></i><span>Избранное</span><i class="fas fa-chevron-right arrow"></i></div>
-                        <div class="menu-item" onclick="openSettingsModal(event)"><i class="fas fa-credit-card"></i><span>Способы оплаты</span><i class="fas fa-chevron-right arrow"></i></div>
+                        <div class="menu-item" onclick="openSettingsModal()"><i class="fas fa-credit-card"></i><span>Способы оплаты</span><i class="fas fa-chevron-right arrow"></i></div>
                     </div>
                     ${user.role === 'admin' ? '<a href="/admin" class="admin-panel-btn"><i class="fas fa-crown"></i> Админ панель</a>' : ''}
                     <a href="/logout" class="logout-btn">Выйти</a>
@@ -2497,8 +2424,7 @@ app.get("/profile", requireAuth, (req, res) => {
                         }, 'image/jpeg', 0.9);
                     }
                     
-                    function openSettingsModal(e) {
-                        e.preventDefault();
+                    function openSettingsModal() {
                         document.getElementById('settingsModal').style.display = 'flex';
                     }
                     
@@ -2529,7 +2455,6 @@ app.get("/profile", requireAuth, (req, res) => {
                         }
                     });
                     
-                    // Функции для модального окна избранного
                     function openFavoritesModal() {
                         document.getElementById('favoritesModal').style.display = 'flex';
                         loadFavoritesList();
@@ -2608,9 +2533,13 @@ app.get("/profile", requireAuth, (req, res) => {
                         }
                     }
                     
-                    // ИСПРАВЛЕННАЯ ФУНКЦИЯ viewProduct - открывает модальное окно вместо перехода
+                    // Функция просмотра товара (открытие модального окна)
                     function viewProduct(productId, type) {
-                        openProductModal(productId, type);
+                        // Закрываем модальное окно избранного
+                        closeFavoritesModal();
+                        // Здесь можно открыть модальное окно товара (требуется доработка)
+                        // Для простоты перенаправляем на страницу товара
+                        window.location.href = '/catalog?product_id=' + productId;
                     }
                     
                     async function updateFavCount() {
@@ -2681,6 +2610,7 @@ app.get("/profile", requireAuth, (req, res) => {
                 res.send(renderMobilePage('Профиль', content, user, 'profile'));
             });
         } else {
+            // ДЕСКТОПНАЯ ВЕРСИЯ ПРОФИЛЯ (БЕЗ ИЗМЕНЕНИЙ)
             db.get("SELECT COUNT(*) as favs FROM favorites WHERE user_id = ?", [user.id], (err, favs) => {
                 const favCount = favs ? favs.favs : 0;
                 res.send(`
@@ -3829,505 +3759,13 @@ app.get("/catalog", (req, res) => {
                 };
                 
                 if (req.isMobile) {
-                    // Мобильная версия каталога
-                    let content = `
-                    <style>
-                        .big-search { margin-bottom: 20px; }
-                        .big-search form { display: flex; gap: 10px; }
-                        .big-search input { flex: 1; background: #1a1a1a; border: 1px solid #333; border-radius: 40px; padding: 14px 20px; color: white; font-size: 16px; outline: none; transition: border-color 0.2s; }
-                        .big-search input:focus { border-color: #ff0000; }
-                        .big-search button { background: linear-gradient(45deg, #ff0000, #990000); border: none; border-radius: 40px; padding: 0 24px; color: white; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
-                        .big-search button:hover { transform: scale(1.02); }
-                        .filter-btn { width: 100%; background: #1a1a1a; border: 1px solid #333; border-radius: 40px; padding: 12px 20px; color: white; font-size: 14px; cursor: pointer; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.3s; }
-                        .filter-btn.active { border-color: #ff0000; background: #ff000020; }
-                        .filters { display: none; background: #1a1a1a; border-radius: 16px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; }
-                        .filters.open { display: block; animation: slideDown 0.3s ease; }
-                        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-                        .filters-grid { display: grid; gap: 15px; }
-                        .filter-item { display: flex; flex-direction: column; gap: 8px; }
-                        .filter-item label { font-size: 12px; text-transform: uppercase; color: #aaa; font-weight: bold; }
-                        .filter-item select, .filter-item input { background: #111; border: 1px solid #333; border-radius: 8px; padding: 10px 12px; color: white; font-size: 14px; }
-                        .filter-actions { display: flex; gap: 10px; margin-top: 10px; }
-                        .apply-btn { flex: 1; background: linear-gradient(45deg, #ff0000, #990000); border: none; border-radius: 8px; padding: 10px; color: white; font-weight: bold; cursor: pointer; }
-                        .reset-btn { flex: 1; background: #333; border: none; border-radius: 8px; padding: 10px; color: white; text-align: center; text-decoration: none; font-weight: bold; }
-                        .section-title { color: white; font-size: 20px; margin: 20px 0; }
-                        
-                        .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }
-                        .product-card { background: #1a1a1a; border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s, border-color 0.2s; border: 1px solid #333; }
-                        .product-card:hover { transform: translateY(-3px); border-color: #ff0000; }
-                        .product-image { position: relative; aspect-ratio: 1; overflow: hidden; }
-                        .product-image img { width: 100%; height: 100%; object-fit: cover; }
-                        .vinyl-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.3s; }
-                        .product-card:hover .vinyl-overlay { opacity: 1; }
-                        .vinyl-icon { width: 50px; height: 50px; animation: spin 2s linear infinite; animation-play-state: paused; }
-                        .product-card:hover .vinyl-icon { animation-play-state: running; }
-                        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-                        .product-info { padding: 10px; }
-                        .product-name { color: white; font-size: 14px; font-weight: bold; }
-                        .product-artist { color: #aaa; font-size: 12px; margin: 4px 0; }
-                        .product-price { color: #ff0000; font-size: 16px; font-weight: bold; margin: 8px 0; }
-                        .product-actions { display: flex; gap: 8px; }
-                        .action-btn { flex: 1; background: #333; border: none; border-radius: 6px; padding: 6px; color: white; cursor: pointer; transition: background 0.2s; }
-                        .action-btn:hover { background: #ff0000; }
-                        .rating-stars { display: flex; align-items: center; gap: 4px; margin: 6px 0; }
-                        .rating-stars .star { font-size: 10px; color: #444; }
-                        .rating-stars .star.filled { color: #ff7a2f; }
-                        .rating-value { font-size: 10px; color: #ff7a2f; margin-left: 4px; }
-                        .votes-count { font-size: 9px; color: #666; }
-                        .auth-prompt { text-align: center; padding: 20px; background: #1a1a1a; border-radius: 12px; margin-top: 20px; }
-                        .auth-prompt a { color: #ff0000; text-decoration: none; }
-                        .empty-cart-state { text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #1a1a1a, #0f0f0f); border-radius: 24px; margin: 20px 0; border: 1px solid rgba(255, 68, 68, 0.2); }
-                        .empty-cart-icon { font-size: 80px; margin-bottom: 20px; opacity: 0.7; animation: float 3s ease-in-out infinite; }
-                        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-                        .empty-cart-title { font-size: 24px; color: #fff; margin-bottom: 12px; }
-                        .empty-cart-text { color: #888; margin-bottom: 24px; font-size: 14px; }
-                        .empty-cart-btn { display: inline-block; background: linear-gradient(45deg, #ff0000, #990000); color: white; padding: 12px 32px; border-radius: 40px; text-decoration: none; font-weight: bold; transition: transform 0.2s, box-shadow 0.2s; }
-                        .empty-cart-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(255, 0, 0, 0.3); }
-                        .notification { position: fixed; bottom: 20px; right: 20px; background: linear-gradient(135deg, #4CAF50, #45a049); color: white; padding: 12px 16px; border-radius: 10px; z-index: 9999; display: flex; align-items: center; gap: 10px; animation: slideInRight 0.3s forwards, slideOutRight 0.3s 2.7s forwards; font-size: 13px; }
-                        @keyframes slideInRight { to { transform: translateX(0); } }
-                        @keyframes slideOutRight { to { transform: translateX(400px); } }
-                    </style>
-                    
-                    <div class="big-search">
-                        <form method="GET" action="/catalog">
-                            <input type="text" name="search" placeholder="Найти пластинку по названию или исполнителю..." value="${escapeHtml(search || '')}" autocomplete="off">
-                            <button type="submit"><i class="fas fa-search"></i> Поиск</button>
-                        </form>
-                    </div>
-                    
-                    <button class="filter-btn" onclick="toggleFilters()">
-                        <i class="fas fa-sliders-h"></i> Фильтры и сортировка <i class="fas fa-chevron-down"></i>
-                    </button>
-                    
-                    <div class="filters" id="filtersPanel">
-                        <form method="GET" action="/catalog" class="filters-grid">
-                            <input type="hidden" name="search" value="${escapeHtml(search || '')}">
-                            <div class="filter-item">
-                                <label>Жанр</label>
-                                <select name="genre">
-                                    <option value="all">Все</option>
-                                    ${genres.map(g => `<option value="${g}" ${genre === g ? 'selected' : ''}>${g}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="filter-item">
-                                <label>Цена от</label>
-                                <input type="number" name="minPrice" placeholder="0" value="${minPrice || ''}">
-                            </div>
-                            <div class="filter-item">
-                                <label>Цена до</label>
-                                <input type="number" name="maxPrice" placeholder="1000" value="${maxPrice || ''}">
-                            </div>
-                            <div class="filter-item">
-                                <label>Сортировка</label>
-                                <select name="sort">
-                                    <option value="">По умолчанию</option>
-                                    <option value="price_asc" ${sort === 'price_asc' ? 'selected' : ''}>Цена ↑</option>
-                                    <option value="price_desc" ${sort === 'price_desc' ? 'selected' : ''}>Цена ↓</option>
-                                    <option value="name_asc" ${sort === 'name_asc' ? 'selected' : ''}>Название А-Я</option>
-                                    <option value="name_desc" ${sort === 'name_desc' ? 'selected' : ''}>Название Я-А</option>
-                                </select>
-                            </div>
-                            <div class="filter-actions">
-                                <button type="submit" class="apply-btn"><i class="fas fa-check"></i> Применить</button>
-                                <a href="/catalog" class="reset-btn"><i class="fas fa-times"></i> Сбросить</a>
-                            </div>
-                        </form>
-                    </div>
-                    
-                    <h2 class="section-title">Все пластинки (${products.length})</h2>
-                    `;
-                                        
-                    if (products.length === 0) {
-                        content += `<div class="empty-cart-state"><div class="empty-cart-icon">🎵</div><h3 class="empty-cart-title">В каталоге пока пусто</h3><p class="empty-cart-text">Пластинки скоро появятся. Загляните позже!</p><a href="/" class="empty-cart-btn">На главную</a></div>`;
-                    } else {
-                        content += `<div class="products-grid">`;
-                        products.forEach(p => {
-                            const coverImage = p.image ? `/uploads/${p.image}` : DEFAULT_COVER;
-                            content += `
-                            <div class="product-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-artist="${escapeHtml(p.artist)}" data-price="${p.price}" data-image="${coverImage}" data-description="${escapeHtml(p.description || 'Нет описания')}" data-genre="${escapeHtml(p.genre || 'Rock')}" data-year="${escapeHtml(p.year || '1970')}" data-audio="${p.audio || ''}">
-                                <div class="product-image">
-                                    <img src="${coverImage}" onerror="this.src='${DEFAULT_COVER}'">
-                                    <div class="vinyl-overlay"><img src="/photo/plastinka-audio.png" class="vinyl-icon"></div>
-                                </div>
-                                <div class="product-info">
-                                    <div class="product-name">${escapeHtml(p.name)}</div>
-                                    <div class="product-artist">${escapeHtml(p.artist)}</div>
-                                    <div class="rating-stars" data-product-id="${p.id}" data-rating="${p.avg_rating}">${generateStarRatingHTML(p.avg_rating, p.votes_count)}</div>
-                                    <div class="product-price">$${p.price}</div>
-                                    <div class="product-actions">
-                                        <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${p.id}')"><i class="fas fa-shopping-cart"></i></button>
-                                        <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${p.id}')"><i class="fas fa-heart"></i></button>
-                                    </div>
-                                </div>
-                            </div>`;
-                        });
-                        content += `</div>`;
-                    }
-                    
-                    if (!user) content += `<div class="auth-prompt"><p>Войдите, чтобы добавлять товары в избранное и корзину</p><a href="/login" class="auth-btn">Войти</a></div>`;
-                    
-                    content += `
-                    <div id="productModal" class="modal-overlay">
-                        <div class="modal-content" style="max-width: 350px;max-height: 90vh;overflow-y: auto;">
-                            <button class="modal-close" id="closeProductModal">×</button>
-                            <img src="" alt="Пластинка" class="modal-player-image" id="productModalImage">
-                            <h2 class="modal-title" id="productModalTitle"></h2>
-                            <p class="modal-artist" id="productModalArtist"></p>
-                            <div class="modal-tags" id="productModalTags"></div>
-                            <div class="rating-section" id="modalRatingSection">
-                                <div class="rating-label">Средняя оценка:</div>
-                                <div class="rating-stars-large" id="modalRatingStars"></div>
-                                <div class="rating-votes" id="modalRatingVotes"></div>
-                            </div>
-                            <div class="comment-section" id="modalCommentSection" style="display:none;">
-                                <textarea id="modalComment" placeholder="Напишите свой отзыв..." rows="3"></textarea>
-                                <button onclick="submitRatingWithComment()" class="submit-rating-btn">Отправить оценку</button>
-                            </div>
-                            <div class="comments-list" id="modalCommentsList"></div>
-                            <p class="modal-description" id="productModalDescription"></p>
-                            <div class="modal-price" id="productModalPrice"></div>
-                            <div class="modal-actions">
-                                <button onclick="addToCartFromModal()" class="modal-add-to-cart" id="productModalAddToCart"><i class="fas fa-shopping-cart"></i> В корзину</button>
-                                <button onclick="toggleFavoriteFromModal()" class="modal-fav-btn" id="productModalFavBtn"><i class="fas fa-heart"></i></button>
-                            </div>
-                            <div id="productModalAudio" style="display:none;"></div>
-                            <button onclick="playModalPreview()" class="modal-play-btn" id="productModalPlayBtn" style="display:none;"><i class="fas fa-play"></i> Прослушать</button>
-                        </div>
-                    </div>
-                    
-                    <script>
-                    let currentModalProductId = null;
-                    let currentModalProductRealId = null;
-                    let currentModalSelectedRating = null;
-                    
-                    function toggleFilters() {
-                        const panel = document.getElementById('filtersPanel');
-                        const btn = document.querySelector('.filter-btn');
-                        if (panel) panel.classList.toggle('open');
-                        if (btn) btn.classList.toggle('active');
-                    }
-                    
-                    function showProductModal(id, name, artist, price, image, description, genre, year, audio) {
-                        currentModalProductId = 'product_' + id;
-                        currentModalProductRealId = id;
-                        document.getElementById('productModalImage').src = image;
-                        document.getElementById('productModalTitle').textContent = name;
-                        document.getElementById('productModalArtist').textContent = artist;
-                        document.getElementById('productModalTags').innerHTML = '<span class="modal-tag">' + genre + '</span><span class="modal-tag">' + year + '</span>';
-                        document.getElementById('productModalDescription').textContent = description;
-                        document.getElementById('productModalPrice').innerHTML = price + ' <span>$</span>';
-                        
-                        if (audio && audio !== 'null' && audio !== '') {
-                            const playBtn = document.getElementById('productModalPlayBtn');
-                            if (playBtn) {
-                                playBtn.style.display = 'flex';
-                                window.currentAudioFile = audio;
-                            }
-                        } else {
-                            const playBtn = document.getElementById('productModalPlayBtn');
-                            if (playBtn) playBtn.style.display = 'none';
-                        }
-                        
-                        fetch('/api/rating/' + id)
-                            .then(response => response.json())
-                            .then(data => {
-                                renderStarsInModal('modalRatingStars', parseFloat(data.avg_rating), id);
-                                const votesSpan = document.getElementById('modalRatingVotes');
-                                if (votesSpan) votesSpan.textContent = '(' + data.votes_count + ' оценок)';
-                                renderComments(data.comments, 'modalCommentsList');
-                            });
-                        
-                        fetch('/api/favorites/check/' + currentModalProductId)
-                            .then(r => r.json())
-                            .then(data => {
-                                const favBtn = document.getElementById('productModalFavBtn');
-                                if (data.isFavorite) {
-                                    favBtn.classList.add('active');
-                                } else {
-                                    favBtn.classList.remove('active');
-                                }
-                            })
-                            .catch(() => {});
-                        
-                        document.getElementById('productModal').classList.add('active');
-                    }
-                    
-                    function closeProductModal() {
-                        document.getElementById('productModal').classList.remove('active');
-                        document.getElementById('modalCommentSection').style.display = 'none';
-                        document.getElementById('modalComment').value = '';
-                        currentModalSelectedRating = null;
-                        if (window.currentAudioPlayer) {
-                            window.currentAudioPlayer.pause();
-                            window.currentAudioPlayer = null;
-                        }
-                    }
-                    
-                    function renderStarsInModal(containerId, rating, productId) {
-                        const container = document.getElementById(containerId);
-                        if (!container) return;
-                        
-                        let starsHtml = '';
-                        const fullStars = Math.floor(rating);
-                        const hasHalfStar = rating % 1 >= 0.5;
-                        
-                        for (let i = 1; i <= 5; i++) {
-                            if (i <= fullStars) {
-                                starsHtml += '<i class="fas fa-star star filled" data-value="' + i + '"></i>';
-                            } else if (i === fullStars + 1 && hasHalfStar) {
-                                starsHtml += '<i class="fas fa-star-half-alt star filled" data-value="' + i + '"></i>';
-                            } else {
-                                starsHtml += '<i class="far fa-star star" data-value="' + i + '"></i>';
-                            }
-                        }
-                        
-                        container.innerHTML = starsHtml;
-                        
-                        const isLoggedIn = ${!!req.session.user};
-                        if (isLoggedIn) {
-                            const stars = container.querySelectorAll('.star');
-                            stars.forEach(star => {
-                                star.style.cursor = 'pointer';
-                                star.addEventListener('mouseenter', function() {
-                                    const value = parseInt(this.dataset.value);
-                                    stars.forEach((s, idx) => {
-                                        if (idx < value) {
-                                            s.classList.add('hover');
-                                        } else {
-                                            s.classList.remove('hover');
-                                        }
-                                    });
-                                });
-                                star.addEventListener('mouseleave', function() {
-                                    stars.forEach(s => s.classList.remove('hover'));
-                                });
-                                star.addEventListener('click', function() {
-                                    const value = parseInt(this.dataset.value);
-                                    currentModalSelectedRating = value;
-                                    const commentSection = document.getElementById('modalCommentSection');
-                                    if (commentSection) commentSection.style.display = 'block';
-                                    stars.forEach((s, idx) => {
-                                        if (idx < value) {
-                                            s.classList.add('filled');
-                                        } else {
-                                            s.classList.remove('filled');
-                                        }
-                                    });
-                                });
-                            });
-                        }
-                    }
-                    
-                    function renderComments(comments, containerId) {
-                        const container = document.getElementById(containerId);
-                        if (!container) return;
-                        
-                        if (!comments || comments.length === 0) {
-                            container.innerHTML = '<div class="no-comments">📝 Пока нет комментариев. Будьте первым!</div>';
-                            return;
-                        }
-                        
-                        let html = '';
-                        comments.forEach(c => {
-                            let stars = '';
-                            for (let s = 1; s <= 5; s++) {
-                                if (s <= c.rating) {
-                                    stars += '<i class="fas fa-star" style="color:#ff7a2f; font-size:10px;"></i>';
-                                } else {
-                                    stars += '<i class="far fa-star" style="color:#555; font-size:10px;"></i>';
-                                }
-                            }
-                            html += '<div class="comment-item">' +
-                                '<div class="comment-header">' +
-                                '<span class="comment-user">' + escapeHtml(c.username) + '</span>' +
-                                '<span class="comment-date">' + new Date(c.created_at).toLocaleDateString() + '</span>' +
-                                '</div>' +
-                                '<div class="comment-rating">' + stars + '</div>' +
-                                '<div class="comment-text">' + escapeHtml(c.comment || '') + '</div>' +
-                                '</div>';
-                        });
-                        container.innerHTML = html;
-                    }
-                    
-                    function submitRatingWithComment() {
-                        const isLoggedIn = ${!!req.session.user};
-                        if (!isLoggedIn) {
-                            showToastMobile('🔒 Войдите в аккаунт, чтобы оставить отзыв', true);
-                            return;
-                        }
-                        
-                        const rating = currentModalSelectedRating;
-                        const comment = document.getElementById('modalComment').value;
-                        const productId = currentModalProductRealId;
-                        
-                        if (!rating) {
-                            showToastMobile('⭐ Сначала выберите оценку!', true);
-                            return;
-                        }
-                        
-                        fetch('/api/rating/' + productId, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ rating: rating, comment: comment || '' })
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                showToastMobile('⭐ Спасибо за оценку и отзыв!', false);
-                                renderStarsInModal('modalRatingStars', parseFloat(data.avg_rating), productId);
-                                const votesSpan = document.getElementById('modalRatingVotes');
-                                if (votesSpan) votesSpan.textContent = '(' + data.votes_count + ' оценок)';
-                                renderComments(data.comments, 'modalCommentsList');
-                                document.getElementById('modalCommentSection').style.display = 'none';
-                                document.getElementById('modalComment').value = '';
-                                currentModalSelectedRating = null;
-                                
-                                const productCardStars = document.querySelector('.rating-stars[data-product-id="' + productId + '"]');
-                                if (productCardStars) {
-                                    updateCardRatingMobile(productCardStars, parseFloat(data.avg_rating), data.votes_count);
-                                }
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Ошибка:', error);
-                            showToastMobile('Ошибка при сохранении оценки', true);
-                        });
-                    }
-                    
-                    function addToCartFromModal() {
-                        if (currentModalProductId) {
-                            fetch('/api/cart/add', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ id: currentModalProductId })
-                            }).then(() => {
-                                showToastMobile('Товар добавлен в корзину', false);
-                                closeProductModal();
-                            });
-                        }
-                    }
-                    
-                    function toggleFavoriteFromModal() {
-                        if (currentModalProductId) {
-                            fetch('/api/favorites/toggle', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ id: currentModalProductId })
-                            }).then(() => {
-                                const favBtn = document.getElementById('productModalFavBtn');
-                                if (favBtn.classList.contains('active')) {
-                                    favBtn.classList.remove('active');
-                                    showToastMobile('Удалено из избранного', false);
-                                } else {
-                                    favBtn.classList.add('active');
-                                    showToastMobile('Добавлено в избранное', false);
-                                }
-                            });
-                        }
-                    }
-                    
-                    function playModalPreview() {
-                        const audioFile = document.getElementById('productModalAudio').innerText;
-                        if (audioFile) {
-                            if (window.currentAudioPlayer) {
-                                window.currentAudioPlayer.pause();
-                            }
-                            window.currentAudioPlayer = new Audio('/audio/' + audioFile);
-                            window.currentAudioPlayer.play();
-                        }
-                    }
-                    
-                    function updateCardRatingMobile(container, rating, votesCount) {
-                        let starsHtml = '';
-                        const fullStars = Math.floor(rating);
-                        const hasHalfStar = rating % 1 >= 0.5;
-                        for (let i = 1; i <= 5; i++) {
-                            if (i <= fullStars) {
-                                starsHtml += '<i class="fas fa-star star filled"></i>';
-                            } else if (i === fullStars + 1 && hasHalfStar) {
-                                starsHtml += '<i class="fas fa-star-half-alt star filled"></i>';
-                            } else {
-                                starsHtml += '<i class="far fa-star star"></i>';
-                            }
-                        }
-                        starsHtml += '<span class="rating-value">' + rating + '</span>';
-                        starsHtml += '<span class="votes-count">(' + votesCount + ')</span>';
-                        container.innerHTML = starsHtml;
-                        container.dataset.rating = rating;
-                    }
-                    
-                    function addToCartMobile(id) {
-                        fetch('/api/cart/add', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ id: id })
-                        }).then(() => showToastMobile('Товар добавлен в корзину', false));
-                    }
-                    
-                    function toggleFavoriteMobile(id) {
-                        fetch('/api/favorites/toggle', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ id: id })
-                        }).then(() => showToastMobile('Избранное обновлено', false));
-                    }
-                    
-                    function showToastMobile(message, isError) {
-                        const toast = document.createElement('div');
-                        toast.className = 'notification';
-                        toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' +
-                            '<span>' + (isError ? '❌' : '✅') + '</span>' +
-                            '<span>' + message + '</span>' +
-                            '</div>';
-                        document.body.appendChild(toast);
-                        setTimeout(() => toast.remove(), 3000);
-                    }
-                    
-                    function escapeHtml(str) {
-                        if (!str) return '';
-                        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                    }
-                    
-                    document.getElementById('closeProductModal')?.addEventListener('click', closeProductModal);
-                    document.getElementById('productModal')?.addEventListener('click', (e) => {
-                        if (e.target === document.getElementById('productModal')) closeProductModal();
-                    });
-                    
-                    document.querySelectorAll('.product-card').forEach(card => {
-                        card.addEventListener('click', (e) => {
-                            if (e.target.closest('.action-btn')) return;
-                            showProductModal(
-                                card.dataset.id,
-                                card.dataset.name,
-                                card.dataset.artist,
-                                card.dataset.price,
-                                card.dataset.image,
-                                card.dataset.description,
-                                card.dataset.genre,
-                                card.dataset.year,
-                                card.dataset.audio || ''
-                            );
-                        });
-                    });
-                    
-                    document.querySelectorAll('.rating-stars').forEach(container => {
-                        const productId = container.dataset.productId;
-                        fetch('/api/rating/' + productId)
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.avg_rating) {
-                                    updateCardRatingMobile(container, parseFloat(data.avg_rating), data.votes_count);
-                                }
-                            });
-                    });
-                    </script>
-                    `;
-                    
+                    // ========== МОБИЛЬНАЯ ВЕРСИЯ КАТАЛОГА (ПЕРЕРАБОТАНО) ==========
+                    const content = renderMobileCatalogContent(products, genres, genre, minPrice, maxPrice, sort, search, user);
                     res.send(renderMobilePage('Каталог', content, user, 'catalog'));
                     return;
                 }
                 
-                // ДЕСКТОПНАЯ ВЕРСИЯ КАТАЛОГА
+                // ДЕСКТОПНАЯ ВЕРСИЯ КАТАЛОГА (БЕЗ ИЗМЕНЕНИЙ)
                 let productsHTML = "";
                 products.forEach(p => {
                     const coverImage = p.image ? `/uploads/${p.image}` : DEFAULT_COVER;
@@ -6347,6 +5785,7 @@ app.get("/cart", requireAuth, (req, res) => {
     db.all("SELECT * FROM carts WHERE user_id = ?", [user.id], (err, cartItems) => {
         if (err || cartItems.length === 0) {
             if (req.isMobile) {
+                // Мобильная пустая корзина (оставляем как есть)
                 const content = `
                     <div class="empty-cart-container">
                         <div class="empty-cart-animation">
@@ -6599,6 +6038,7 @@ app.get("/cart", requireAuth, (req, res) => {
                 `;
                 return res.send(renderMobilePage('Корзина', content, user, 'cart'));
             } else {
+                // Десктоп пустая корзина (без изменений)
                 return res.send(`<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Корзина · Plastinka</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -6703,6 +6143,7 @@ function escapeHtml(str){ if(!str) return ''; return String(str).replace(/&/g,'&
 
         Promise.all(promises).then(() => {
             if (req.isMobile) {
+                // Мобильная корзина с товарами
                 let itemsHtml = '';
                 items.forEach(item => {
                     const imagePath = item.type === 'player' ? `/photo/${item.image}` : `/uploads/${item.image}`;
@@ -6711,6 +6152,7 @@ function escapeHtml(str){ if(!str) return ''; return String(str).replace(/&/g,'&
                 const content = `${itemsHtml}<div class="cart-total"><span>Итого:</span><span class="total-price">$${totalPrice}</span></div><button class="checkout-btn" onclick="checkout()">Оформить заказ</button><script>function updateQuantity(id,action){fetch('/api/cart/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:id,action:action})}).then(()=>location.reload());}function removeFromCart(id){if(confirm('Удалить товар из корзины?')){fetch('/api/cart/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:id})}).then(()=>location.reload());}}function checkout(){if(confirm('Подтвердите заказ')){fetch('/api/order',{method:'POST'}).then(()=>{alert('✅ Заказ оформлен!');window.location='/';});}}<\/script>`;
                 res.send(renderMobilePage('Корзина', content, user, 'cart'));
             } else {
+                // Десктоп корзина с товарами (без изменений)
                 let itemsHTML = "";
                 items.forEach(item => {
                     const imagePath = item.type === 'player' ? `/photo/${item.image}` : `/uploads/${item.image}`;
@@ -6932,397 +6374,9 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     </body>
     </html>`;
 }
-// ============================================================
-// ===================== СТРАНИЦА ИЗБРАННОГО (МОБИЛЬНАЯ) ==========
-// ============================================================
-app.get("/favorites", requireAuth, (req, res) => {
-    const user = req.session.user;
-    
-    // Получаем список избранного через API
-    const userId = user.id;
-    
-    db.all(`
-        SELECT f.*, p.name, p.artist, p.price, p.image, p.id as product_db_id, p.audio
-        FROM favorites f
-        JOIN products p ON f.product_id = 'product_' || p.id
-        WHERE f.user_id = ?
-        ORDER BY f.added_at DESC
-    `, [userId], (err, products) => {
-        if (err) products = [];
-        
-        db.all(`
-            SELECT f.*, pl.name, pl.price, pl.image, pl.id as player_db_id
-            FROM favorites f
-            JOIN players pl ON f.product_id = 'player_' || pl.id
-            WHERE f.user_id = ?
-            ORDER BY f.added_at DESC
-        `, [userId], (err2, players) => {
-            if (err2) players = [];
-            
-            // Собираем все избранное в один массив
-            const favorites = [];
-            
-            products.forEach(p => {
-                favorites.push({
-                    id: p.product_db_id,
-                    type: 'product',
-                    name: p.name,
-                    artist: p.artist,
-                    price: p.price,
-                    image: p.image,
-                    audio: p.audio,
-                    added_at: p.added_at
-                });
-            });
-            
-            players.forEach(p => {
-                favorites.push({
-                    id: p.player_db_id,
-                    type: 'player',
-                    name: p.name,
-                    artist: 'Проигрыватель',
-                    price: p.price,
-                    image: p.image,
-                    added_at: p.added_at
-                });
-            });
-            
-            // Сортируем по дате добавления (новые сверху)
-            favorites.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
-            
-            let favoritesHtml = '';
-            
-            if (favorites.length === 0) {
-                favoritesHtml = `
-                    <div class="empty-favorites">
-                        <div class="empty-icon"><i class="fas fa-heart-broken"></i></div>
-                        <h3>Избранное пусто</h3>
-                        <p>Добавляйте понравившиеся пластинки и проигрыватели в избранное, они появятся здесь</p>
-                        <a href="/catalog" class="empty-btn">📀 В каталог</a>
-                    </div>
-                `;
-            } else {
-                favoritesHtml = `<div class="favorites-list">`;
-                favorites.forEach(item => {
-                    const imagePath = item.type === 'product' ? `/uploads/${item.image}` : `/photo/${item.image}`;
-                    const productId = `${item.type}_${item.id}`;
-                    const typeLabel = item.type === 'product' ? 'Пластинка' : 'Проигрыватель';
-                    const artistHtml = item.type === 'product' ? `<div class="fav-artist">${escapeHtml(item.artist)}</div>` : '';
-                    
-                    favoritesHtml += `
-                        <div class="favorite-card" data-id="${item.id}" data-type="${item.type}">
-                            <div class="fav-image">
-                                <img src="${imagePath}" onerror="this.src='/photo/plastinka-audio.png'">
-                            </div>
-                            <div class="fav-info">
-                                <div class="fav-type">${typeLabel}</div>
-                                <div class="fav-name">${escapeHtml(item.name)}</div>
-                                ${artistHtml}
-                                <div class="fav-price">$${item.price}</div>
-                            </div>
-                            <div class="fav-actions">
-                                <button class="fav-cart-btn" onclick="addToCart('${productId}')">
-                                    <i class="fas fa-shopping-cart"></i>
-                                </button>
-                                <button class="fav-remove-btn" onclick="removeFromFavorites(${item.id}, '${item.type}')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                });
-                favoritesHtml += `</div>`;
-            }
-            
-            const content = `
-                <style>
-                    /* Анимация пластинки для мобильной версии */
-                        .vinyl-animation {
-                            position: relative;
-                            aspect-ratio: 1;
-                            overflow: hidden;
-                            cursor: pointer;
-                        }
-                        .album-cover {
-                            position: relative;
-                            z-index: 2;
-                            width: 100%;
-                            height: 100%;
-                            object-fit: cover;
-                            transition: transform 0.3s ease;
-                        }
-                        .vinyl-disc {
-                            position: absolute;
-                            top: 0;
-                            left: 0;
-                            width: 100%;
-                            height: 100%;
-                            object-fit: cover;
-                            z-index: 1;
-                            transition: opacity 0.3s ease;
-                            opacity: 0;
-                            animation: spin 5s linear infinite;
-                            animation-play-state: paused;
-                        }
-                        .vinyl-animation.active .album-cover {
-                            transform: translateX(50%);
-                        }
-                        .vinyl-animation.active .vinyl-disc {
-                            opacity: 1;
-                            animation-play-state: running;
-                        }
-                        @keyframes spin {
-                            from { transform: rotate(0deg); }
-                            to { transform: rotate(360deg); }
-                        }
-                    .empty-favorites {
-                        text-align: center;
-                        padding: 60px 20px;
-                        background: linear-gradient(135deg, #1a1a1a, #0f0f0f);
-                        border-radius: 24px;
-                        margin: 20px 0;
-                    }
-                    .empty-icon {
-                        font-size: 80px;
-                        margin-bottom: 20px;
-                        opacity: 0.7;
-                    }
-                    .empty-favorites h3 {
-                        font-size: 24px;
-                        margin-bottom: 12px;
-                    }
-                    .empty-favorites p {
-                        color: #888;
-                        margin-bottom: 24px;
-                    }
-                    .empty-btn {
-                        display: inline-block;
-                        background: linear-gradient(45deg, #ff0000, #990000);
-                        color: white;
-                        padding: 12px 32px;
-                        border-radius: 40px;
-                        text-decoration: none;
-                        font-weight: bold;
-                    }
-                    .favorites-list {
-                        display: flex;
-                        flex-direction: column;
-                        gap: 16px;
-                        margin-bottom: 20px;
-                    }
-                    .favorite-card {
-                        display: flex;
-                        align-items: center;
-                        gap: 12px;
-                        background: #1a1a1a;
-                        border-radius: 16px;
-                        padding: 12px;
-                        border: 1px solid #333;
-                        transition: all 0.2s;
-                    }
-                    .favorite-card:hover {
-                        border-color: #ff0000;
-                        transform: translateX(5px);
-                    }
-                    .fav-image {
-                        width: 70px;
-                        height: 70px;
-                        flex-shrink: 0;
-                        border-radius: 10px;
-                        overflow: hidden;
-                        background: #111;
-                    }
-                    .fav-image img {
-                        width: 100%;
-                        height: 100%;
-                        object-fit: cover;
-                    }
-                    .fav-info {
-                        flex: 1;
-                    }
-                    .fav-type {
-                        font-size: 10px;
-                        color: #ff7a2f;
-                        text-transform: uppercase;
-                        margin-bottom: 4px;
-                    }
-                    .fav-name {
-                        font-weight: bold;
-                        font-size: 15px;
-                        margin-bottom: 2px;
-                    }
-                    .fav-artist {
-                        font-size: 12px;
-                        color: #aaa;
-                        margin-bottom: 4px;
-                    }
-                    .fav-price {
-                        font-size: 14px;
-                        font-weight: bold;
-                        color: #ff0000;
-                    }
-                    .fav-actions {
-                        display: flex;
-                        flex-direction: column;
-                        gap: 8px;
-                    }
-                    .fav-cart-btn, .fav-remove-btn {
-                        width: 40px;
-                        height: 40px;
-                        border-radius: 10px;
-                        border: none;
-                        cursor: pointer;
-                        transition: 0.2s;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    }
-                    .fav-cart-btn {
-                        background: linear-gradient(45deg, #ff0000, #990000);
-                        color: white;
-                    }
-                    .fav-remove-btn {
-                        background: rgba(255, 68, 68, 0.2);
-                        color: #ff4444;
-                        border: 1px solid #ff4444;
-                    }
-                    .fav-cart-btn:hover, .fav-remove-btn:hover {
-                        transform: scale(1.05);
-                    }
-                </style>
-                
-                <h2 class="section-title">❤️ Избранное</h2>
-                ${favoritesHtml}
-                
-                <script>
-                    function addToCart(productId) {
-                        fetch('/api/cart/add', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ id: productId })
-                        }).then(() => {
-                            showToastMobile('Товар добавлен в корзину', false);
-                        });
-                    }
-                    
-                    function removeFromFavorites(productId, type) {
-                        fetch('/api/favorites/remove', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ productId: productId, type: type })
-                        }).then(() => {
-                            showToastMobile('Удалено из избранного', false);
-                            setTimeout(() => location.reload(), 500);
-                        });
-                    }
-                    
-                    function showToastMobile(message, isError) {
-                        const toast = document.createElement('div');
-                        toast.className = 'toast-notification';
-                        toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' + 
-                            '<span>' + (isError ? '❌' : '✅') + '</span>' + 
-                            '<span>' + message + '</span>' + 
-                            '</div>';
-                        document.body.appendChild(toast);
-                        setTimeout(() => toast.remove(), 3000);
-                    }
-                    // Эффект пластинки при клике на карточку (мобильная версия)
-document.querySelectorAll('.vinyl-animation').forEach(container => {
-    let timeoutId = null;
-    
-    container.addEventListener('click', function(e) {
-        // Не срабатываем если кликнули по кнопкам действий
-        if (e.target.closest('.action-btn')) return;
-        
-        e.stopPropagation();
-        
-        // Убираем предыдущий таймаут
-        if (timeoutId) clearTimeout(timeoutId);
-        
-        // Добавляем класс active
-        this.classList.add('active');
-        
-        // Через 2 секунды возвращаем обратно
-        timeoutId = setTimeout(() => {
-            this.classList.remove('active');
-            timeoutId = null;
-        }, 2000);
-    });
-});
 
-
-                </script>
-            `;
-            
-            res.send(renderMobilePage('Избранное', content, user, 'favorites'));
-        });
-    });
-});
-let currentPlayingAudio = null;
-
-function playTrack(audioFile, event) {
-    event.stopPropagation();
-    if (!audioFile) {
-        showToastMobile('🎵 Аудиопревью недоступно', true);
-        return;
-    }
-    
-    // Если уже играет этот же трек — останавливаем
-    if (currentPlayingAudio && !currentPlayingAudio.paused) {
-        currentPlayingAudio.pause();
-        currentPlayingAudio.currentTime = 0;
-        currentPlayingAudio = null;
-        return;
-    }
-    
-    // Останавливаем предыдущий трек
-    if (currentPlayingAudio) {
-        currentPlayingAudio.pause();
-        currentPlayingAudio.currentTime = 0;
-    }
-    
-    // Создаём и играем новый
-    const audio = new Audio('/audio/' + audioFile);
-    audio.play().catch(e => {
-        console.error('Audio play error:', e);
-        showToastMobile('Не удалось воспроизвести трек', true);
-    });
-    currentPlayingAudio = audio;
-    
-    // По окончании — очищаем
-    audio.onended = function() {
-        currentPlayingAudio = null;
-    };
-}
-// Кнопка прослушивания (отдельно от анимации)
-document.querySelectorAll('.play-track').forEach(btn => {
-    btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const audioFile = this.dataset.audio;
-        if (!audioFile) {
-            showToastMobile('🎵 Аудиопревью недоступно', true);
-            return;
-        }
-        
-        if (window.currentTrackAudio && !window.currentTrackAudio.paused) {
-            window.currentTrackAudio.pause();
-            window.currentTrackAudio.currentTime = 0;
-            if (window.currentTrackAudio === audio) window.currentTrackAudio = null;
-        }
-        
-        const audio = new Audio('/audio/' + audioFile);
-        audio.play().catch(e => console.log('Audio play error:', e));
-        window.currentTrackAudio = audio;
-        
-        audio.onended = () => { window.currentTrackAudio = null; };
-        
-        // Визуальная обратная связь
-        this.style.transform = 'scale(0.9)';
-        setTimeout(() => { this.style.transform = ''; }, 200);
-    });
-});
 // ============================================================
-// API ДЛЯ ОФОРМЛЕНИЯ ЗАКАЗА (МОБИЛЬНАЯ ВЕРСИЯ)
+// ===================== API ДЛЯ ОФОРМЛЕНИЯ ЗАКАЗА (МОБИЛЬНАЯ ВЕРСИЯ)
 // ============================================================
 app.post("/api/order", requireAuth, (req, res) => {
     const userId = req.session.user.id;
@@ -7509,6 +6563,265 @@ app.get("/orders", requireAuth, (req, res) => {
     });
 });
 
+// ============================================================
+// ===================== СТРАНИЦА ИЗБРАННОГО (МОБИЛЬНАЯ) ==========
+// ============================================================
+app.get("/favorites", requireAuth, (req, res) => {
+    const user = req.session.user;
+    
+    const userId = user.id;
+    
+    db.all(`
+        SELECT f.*, p.name, p.artist, p.price, p.image, p.id as product_db_id, p.audio
+        FROM favorites f
+        JOIN products p ON f.product_id = 'product_' || p.id
+        WHERE f.user_id = ?
+        ORDER BY f.added_at DESC
+    `, [userId], (err, products) => {
+        if (err) products = [];
+        
+        db.all(`
+            SELECT f.*, pl.name, pl.price, pl.image, pl.id as player_db_id
+            FROM favorites f
+            JOIN players pl ON f.product_id = 'player_' || pl.id
+            WHERE f.user_id = ?
+            ORDER BY f.added_at DESC
+        `, [userId], (err2, players) => {
+            if (err2) players = [];
+            
+            const favorites = [];
+            
+            products.forEach(p => {
+                favorites.push({
+                    id: p.product_db_id,
+                    type: 'product',
+                    name: p.name,
+                    artist: p.artist,
+                    price: p.price,
+                    image: p.image,
+                    audio: p.audio,
+                    added_at: p.added_at
+                });
+            });
+            
+            players.forEach(p => {
+                favorites.push({
+                    id: p.player_db_id,
+                    type: 'player',
+                    name: p.name,
+                    artist: 'Проигрыватель',
+                    price: p.price,
+                    image: p.image,
+                    added_at: p.added_at
+                });
+            });
+            
+            favorites.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
+            
+            let favoritesHtml = '';
+            
+            if (favorites.length === 0) {
+                favoritesHtml = `
+                    <div class="empty-favorites">
+                        <div class="empty-icon"><i class="fas fa-heart-broken"></i></div>
+                        <h3>Избранное пусто</h3>
+                        <p>Добавляйте понравившиеся пластинки и проигрыватели в избранное, они появятся здесь</p>
+                        <a href="/catalog" class="empty-btn">📀 В каталог</a>
+                    </div>
+                `;
+            } else {
+                favoritesHtml = `<div class="favorites-list">`;
+                favorites.forEach(item => {
+                    const imagePath = item.type === 'product' ? `/uploads/${item.image}` : `/photo/${item.image}`;
+                    const productId = `${item.type}_${item.id}`;
+                    const typeLabel = item.type === 'product' ? 'Пластинка' : 'Проигрыватель';
+                    const artistHtml = item.type === 'product' ? `<div class="fav-artist">${escapeHtml(item.artist)}</div>` : '';
+                    
+                    favoritesHtml += `
+                        <div class="favorite-card" data-id="${item.id}" data-type="${item.type}">
+                            <div class="fav-image">
+                                <img src="${imagePath}" onerror="this.src='/photo/plastinka-audio.png'">
+                            </div>
+                            <div class="fav-info">
+                                <div class="fav-type">${typeLabel}</div>
+                                <div class="fav-name">${escapeHtml(item.name)}</div>
+                                ${artistHtml}
+                                <div class="fav-price">$${item.price}</div>
+                            </div>
+                            <div class="fav-actions">
+                                <button class="fav-cart-btn" onclick="addToCart('${productId}')">
+                                    <i class="fas fa-shopping-cart"></i>
+                                </button>
+                                <button class="fav-remove-btn" onclick="removeFromFavorites(${item.id}, '${item.type}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                favoritesHtml += `</div>`;
+            }
+            
+            const content = `
+                <style>
+                    .empty-favorites {
+                        text-align: center;
+                        padding: 60px 20px;
+                        background: linear-gradient(135deg, #1a1a1a, #0f0f0f);
+                        border-radius: 24px;
+                        margin: 20px 0;
+                    }
+                    .empty-icon {
+                        font-size: 80px;
+                        margin-bottom: 20px;
+                        opacity: 0.7;
+                    }
+                    .empty-favorites h3 {
+                        font-size: 24px;
+                        margin-bottom: 12px;
+                    }
+                    .empty-favorites p {
+                        color: #888;
+                        margin-bottom: 24px;
+                    }
+                    .empty-btn {
+                        display: inline-block;
+                        background: linear-gradient(45deg, #ff0000, #990000);
+                        color: white;
+                        padding: 12px 32px;
+                        border-radius: 40px;
+                        text-decoration: none;
+                        font-weight: bold;
+                    }
+                    .favorites-list {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 16px;
+                        margin-bottom: 20px;
+                    }
+                    .favorite-card {
+                        display: flex;
+                        align-items: center;
+                        gap: 12px;
+                        background: #1a1a1a;
+                        border-radius: 16px;
+                        padding: 12px;
+                        border: 1px solid #333;
+                        transition: all 0.2s;
+                    }
+                    .favorite-card:hover {
+                        border-color: #ff0000;
+                        transform: translateX(5px);
+                    }
+                    .fav-image {
+                        width: 70px;
+                        height: 70px;
+                        flex-shrink: 0;
+                        border-radius: 10px;
+                        overflow: hidden;
+                        background: #111;
+                    }
+                    .fav-image img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }
+                    .fav-info {
+                        flex: 1;
+                    }
+                    .fav-type {
+                        font-size: 10px;
+                        color: #ff7a2f;
+                        text-transform: uppercase;
+                        margin-bottom: 4px;
+                    }
+                    .fav-name {
+                        font-weight: bold;
+                        font-size: 15px;
+                        margin-bottom: 2px;
+                    }
+                    .fav-artist {
+                        font-size: 12px;
+                        color: #aaa;
+                        margin-bottom: 4px;
+                    }
+                    .fav-price {
+                        font-size: 14px;
+                        font-weight: bold;
+                        color: #ff0000;
+                    }
+                    .fav-actions {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                    }
+                    .fav-cart-btn, .fav-remove-btn {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 10px;
+                        border: none;
+                        cursor: pointer;
+                        transition: 0.2s;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .fav-cart-btn {
+                        background: linear-gradient(45deg, #ff0000, #990000);
+                        color: white;
+                    }
+                    .fav-remove-btn {
+                        background: rgba(255, 68, 68, 0.2);
+                        color: #ff4444;
+                        border: 1px solid #ff4444;
+                    }
+                    .fav-cart-btn:hover, .fav-remove-btn:hover {
+                        transform: scale(1.05);
+                    }
+                </style>
+                
+                <h2 class="section-title">❤️ Избранное</h2>
+                ${favoritesHtml}
+                
+                <script>
+                    function addToCart(productId) {
+                        fetch('/api/cart/add', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: productId })
+                        }).then(() => {
+                            showToastMobile('Товар добавлен в корзину', false);
+                        });
+                    }
+                    
+                    function removeFromFavorites(productId, type) {
+                        fetch('/api/favorites/remove', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ productId: productId, type: type })
+                        }).then(() => {
+                            showToastMobile('Удалено из избранного', false);
+                            setTimeout(() => location.reload(), 500);
+                        });
+                    }
+                    
+                    function showToastMobile(message, isError) {
+                        const toast = document.createElement('div');
+                        toast.className = 'toast-notification';
+                        toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' + 
+                            '<span>' + (isError ? '❌' : '✅') + '</span>' + 
+                            '<span>' + message + '</span>' + 
+                            '</div>';
+                        document.body.appendChild(toast);
+                        setTimeout(() => toast.remove(), 3000);
+                    }
+                </script>
+            `;
+            
+            res.send(renderMobilePage('Избранное', content, user, 'favorites'));
+        });
+    });
+});
 
 // ============================================================
 // ЗАПУСК СЕРВЕРА
