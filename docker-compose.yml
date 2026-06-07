@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  plastinka:
+    build: .
+    container_name: plastinka
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./database.sqlite:/app/database.sqlite
+      - ./public/uploads:/app/public/uploads
+      - ./public/audio:/app/public/audio
+      - ./public/photo:/app/public/photo
+      - ./public/avatars:/app/public/avatars
+    environment:
+      - NODE_ENV=production
+      - PORT=3000

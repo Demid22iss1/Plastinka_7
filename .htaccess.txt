@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Если запрашивают /catalog, показываем catalog.html
+RewriteRule ^catalog$ catalog.html [L]
+RewriteRule ^cart$ cart.html [L]
+RewriteRule ^profile$ profile.html [L]
+RewriteRule ^login$ login.html [L]
+RewriteRule ^register$ register.html [L]

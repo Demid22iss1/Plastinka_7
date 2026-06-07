@@ -11,6 +11,7 @@ const db = new sqlite3.Database("./database.sqlite");
 db.run("PRAGMA encoding = 'UTF-8'");
 db.run("PRAGMA case_sensitive_like = OFF");
 
+
 // ============================================================
 // НАСТРОЙКИ MIDDLEWARE
 // ============================================================
@@ -154,17 +155,6 @@ db.serialize(() => {
         UNIQUE(user_id, product_id)
     )`);
 
-    db.run(`CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    order_number TEXT UNIQUE,
-    total_price REAL,
-    items TEXT,
-    status TEXT DEFAULT 'pending',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-    )`);
-
     // Таблица favorites (избранное)
     db.run(`CREATE TABLE IF NOT EXISTS favorites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,68 +270,68 @@ db.serialize(() => {
     });
 
     // Добавление колонки telegram_id в таблицу users
-    db.run(`ALTER TABLE users ADD COLUMN telegram_id INTEGER`, (err) => {
-        if (err && !err.message.includes('duplicate column name')) {
-            console.log("⚠️ Колонка telegram_id уже существует или ошибка:", err.message);
-        } else if (!err) {
-            console.log("✅ Добавлена колонка telegram_id");
-        }
-    });
+db.run(`ALTER TABLE users ADD COLUMN telegram_id INTEGER`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+        console.log("⚠️ Колонка telegram_id уже существует или ошибка:", err.message);
+    } else if (!err) {
+        console.log("✅ Добавлена колонка telegram_id");
+    }
+});
 
-    // Telegram авторизация API
-    app.post("/api/telegram-auth", express.json(), (req, res) => {
-        const { id, first_name, last_name, username, photo_url } = req.body;
-        
-        if (!id) {
-            return res.json({ success: false, error: "No telegram id" });
+// Telegram авторизация API
+app.post("/api/telegram-auth", express.json(), (req, res) => {
+    const { id, first_name, last_name, username, photo_url } = req.body;
+    
+    if (!id) {
+        return res.json({ success: false, error: "No telegram id" });
+    }
+    
+    db.get("SELECT * FROM users WHERE telegram_id = ?", [id], (err, user) => {
+        if (err) {
+            return res.json({ success: false, error: err.message });
         }
         
-        db.get("SELECT * FROM users WHERE telegram_id = ?", [id], (err, user) => {
-            if (err) {
-                return res.json({ success: false, error: err.message });
-            }
+        if (user) {
+            // Вход существующего пользователя
+            req.session.user = { 
+                id: user.id, 
+                username: user.username, 
+                role: user.role, 
+                avatar: user.avatar,
+                telegram_id: id
+            };
+            res.json({ success: true, isNew: false });
+        } else {
+            // Регистрация нового пользователя
+            const newUsername = username || `tg_user_${id}`;
+            const defaultPassword = Math.random().toString(36).substring(2, 15);
+            const hash = bcrypt.hashSync(defaultPassword, 10);
             
-            if (user) {
-                // Вход существующего пользователя
-                req.session.user = { 
-                    id: user.id, 
-                    username: user.username, 
-                    role: user.role, 
-                    avatar: user.avatar,
-                    telegram_id: id
-                };
-                res.json({ success: true, isNew: false });
-            } else {
-                // Регистрация нового пользователя
-                const newUsername = username || `tg_user_${id}`;
-                const defaultPassword = Math.random().toString(36).substring(2, 15);
-                const hash = bcrypt.hashSync(defaultPassword, 10);
-                
-                // Сохраняем фото URL если есть
-                const avatarFile = photo_url ? null : 'default-avatar.png';
-                
-                db.run(
-                    "INSERT INTO users (username, password, role, telegram_id, avatar) VALUES (?, ?, 'user', ?, ?)",
-                    [newUsername, hash, id, avatarFile || 'default-avatar.png'],
-                    function(err) {
-                        if (err) {
-                            console.error("Ошибка регистрации Telegram пользователя:", err);
-                            return res.json({ success: false, error: err.message });
-                        }
-                        
-                        req.session.user = { 
-                            id: this.lastID, 
-                            username: newUsername, 
-                            role: 'user', 
-                            avatar: avatarFile || 'default-avatar.png',
-                            telegram_id: id
-                        };
-                        res.json({ success: true, isNew: true });
+            // Сохраняем фото URL если есть
+            const avatarFile = photo_url ? null : 'default-avatar.png';
+            
+            db.run(
+                "INSERT INTO users (username, password, role, telegram_id, avatar) VALUES (?, ?, 'user', ?, ?)",
+                [newUsername, hash, id, avatarFile || 'default-avatar.png'],
+                function(err) {
+                    if (err) {
+                        console.error("Ошибка регистрации Telegram пользователя:", err);
+                        return res.json({ success: false, error: err.message });
                     }
-                );
-            }
-        });
+                    
+                    req.session.user = { 
+                        id: this.lastID, 
+                        username: newUsername, 
+                        role: 'user', 
+                        avatar: avatarFile || 'default-avatar.png',
+                        telegram_id: id
+                    };
+                    res.json({ success: true, isNew: true });
+                }
+            );
+        }
     });
+});
 });
 
 // ============================================================
@@ -373,21 +363,6 @@ app.get("/api/favorites/status/:productId", requireAuth, (req, res) => {
                 return res.json({ isFavorite: false });
             }
             res.json({ isFavorite: !!fav });
-        });
-});
-
-app.get("/api/cart/status/:productId", requireAuth, (req, res) => {
-    const productId = req.params.productId;
-    const userId = req.session.user.id;
-    
-    db.get("SELECT quantity FROM carts WHERE user_id = ? AND product_id = ?", 
-        [userId, productId], 
-        (err, cart) => {
-            if (err) {
-                console.error("Ошибка проверки корзины:", err);
-                return res.json({ inCart: false, quantity: 0 });
-            }
-            res.json({ inCart: !!cart, quantity: cart?.quantity || 0 });
         });
 });
 
@@ -568,23 +543,14 @@ app.post("/api/update-profile", requireAuth, express.json(), (req, res) => {
         }
         
         function updateUser() {
-            // Проверяем, вошёл ли пользователь через Telegram
-            const isTelegramUser = !!user.telegram_id;
             let updateQuery = "UPDATE users SET username = ? WHERE id = ?";
             let params = [username || user.username, userId];
-
-            if (newPassword && newPassword.trim()) {
-                if (isTelegramUser) {
-                    // Для Telegram-пользователя не проверяем текущий пароль
+            
+            if (currentPassword && newPassword) {
+                if (bcrypt.compareSync(currentPassword, user.password)) {
                     const hashedPassword = bcrypt.hashSync(newPassword, 10);
                     updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
                     params = [username || user.username, hashedPassword, userId];
-                } else if (currentPassword && bcrypt.compareSync(currentPassword, user.password)) {
-                    const hashedPassword = bcrypt.hashSync(newPassword, 10);
-                    updateQuery = "UPDATE users SET username = ?, password = ? WHERE id = ?";
-                    params = [username || user.username, hashedPassword, userId];
-                } else if (!currentPassword && !newPassword) {
-                    // Ничего не делаем с паролем
                 } else {
                     return res.json({ success: false, error: "Неверный текущий пароль" });
                 }
@@ -734,9 +700,9 @@ app.get("/api/search", (req, res) => {
         });
 });
 
-app.get("/search", (req, res) => {
+app.get("/search-page", (req, res) => {
     const query = req.query.q || '';
-    res.redirect(`/catalog?search=${encodeURIComponent(query)}`);
+    res.redirect(`/search?q=${encodeURIComponent(query)}`);
 });
 
 // ============================================================
@@ -803,15 +769,13 @@ app.get("/", (req, res) => {
                     if (err) players = [];
                     
                     if (req.isMobile) {
-                        // ========== МОБИЛЬНАЯ ВЕРСИЯ ГЛАВНОЙ (ИСПРАВЛЕННАЯ) ==========
                         let content = `
                             <h2 class="section-title">Новинки</h2>
                             <div class="products-grid">
                         `;
                         products.forEach(product => {
-                            const productIdForApi = `product_${product.id}`;
-                            content += `
-        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}" data-product-id-for-api="${productIdForApi}">
+    content += `
+        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}">
             <div class="product-image vinyl-animation">
                 <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
                 <img src="/photo/plastinka-audio.png" class="vinyl-disc">
@@ -828,17 +792,17 @@ app.get("/", (req, res) => {
                     <button class="action-btn play-track" data-audio="${product.audio || ''}">
                         <i class="fas fa-headphones"></i>
                     </button>
-                    <button class="action-btn add-to-cart-btn" data-id="${productIdForApi}">
+                    <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
                         <i class="fas fa-shopping-cart"></i>
                     </button>
-                    <button class="action-btn toggle-favorite-btn" data-id="${productIdForApi}">
+                    <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${product.id}')">
                         <i class="fas fa-heart"></i>
                     </button>
                 </div>
             </div>
         </div>
     `;
-                        });
+});
                         content += `</div>`;
                         if (!user) content += `<div class="auth-prompt"><p>Войдите, чтобы добавлять товары в избранное и корзину</p><a href="/login" class="auth-btn">Войти</a></div>`;
                         
@@ -885,159 +849,8 @@ app.get("/", (req, res) => {
                             </div>
                         `;
                         
-                        // Добавляем скрипты для долгого нажатия и обновления статуса
-                        // Скрипты для мобильной версии с правильным воспроизведением звука
-content += `
-<script>
-// Долгое нажатие для воспроизведения аудио
-let longPressTimer = null;
-let currentPlayingAudio = null;
-
-document.querySelectorAll('.vinyl-animation').forEach(container => {
-    const audioElement = container.querySelector('audio');
-    const audioFile = audioElement ? audioElement.getAttribute('data-src') : null;
-    if (!audioFile) return;
-    
-    container.addEventListener('touchstart', function(e) {
-        longPressTimer = setTimeout(() => {
-            // Останавливаем предыдущий аудио
-            if (currentPlayingAudio) {
-                currentPlayingAudio.pause();
-                currentPlayingAudio = null;
-            }
-            // Создаём и воспроизводим новый
-            const audio = new Audio(audioFile);
-            audio.play().catch(e => console.log('Audio play error:', e));
-            currentPlayingAudio = audio;
-            
-            // Добавляем визуальный эффект
-            this.classList.add('active');
-            setTimeout(() => this.classList.remove('active'), 2000);
-            longPressTimer = null;
-        }, 500);
-    });
-    
-    container.addEventListener('touchend', function() {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-    });
-    
-    container.addEventListener('touchmove', function() {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-    });
-});
-
-// Кнопка для ручного воспроизведения трека
-document.querySelectorAll('.play-track').forEach(btn => {
-    btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const audioFile = this.dataset.audio;
-        if (!audioFile) {
-            showToastMobile('🎵 Аудиопревью недоступно', true);
-            return;
-        }
-        
-        if (currentPlayingAudio) {
-            currentPlayingAudio.pause();
-            currentPlayingAudio = null;
-        }
-        
-        const audio = new Audio('/audio/' + audioFile);
-        audio.play().catch(e => {
-            console.log('Audio play error:', e);
-            showToastMobile('Не удалось воспроизвести трек', true);
-        });
-        currentPlayingAudio = audio;
-        
-        // Визуальная обратная связь
-        this.style.transform = 'scale(0.9)';
-        setTimeout(() => { this.style.transform = ''; }, 200);
-    });
-});
-
-// Функции для обновления статуса корзины и избранного
-async function updateCartStatus(btn, productId) {
-    try {
-        const response = await fetch('/api/cart/status/' + productId);
-        const data = await response.json();
-        if (data.inCart) {
-            btn.style.background = '#ff0000';
-            btn.style.color = 'white';
-        } else {
-            btn.style.background = '#333';
-            btn.style.color = 'white';
-        }
-    } catch(e) { console.error(e); }
-}
-
-async function updateFavoriteStatus(btn, productId) {
-    try {
-        const response = await fetch('/api/favorites/status/' + productId);
-        const data = await response.json();
-        if (data.isFavorite) {
-            btn.style.background = '#ff0000';
-            btn.style.color = 'white';
-        } else {
-            btn.style.background = '#333';
-            btn.style.color = 'white';
-        }
-    } catch(e) { console.error(e); }
-}
-
-document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
-    const productId = btn.dataset.id;
-    if (productId) updateCartStatus(btn, productId);
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        fetch('/api/cart/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: productId })
-        }).then(() => {
-            showToastMobile('Товар добавлен в корзину', false);
-            updateCartStatus(btn, productId);
-        });
-    });
-});
-
-document.querySelectorAll('.toggle-favorite-btn').forEach(btn => {
-    const productId = btn.dataset.id;
-    if (productId) updateFavoriteStatus(btn, productId);
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        fetch('/api/favorites/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: productId })
-        }).then(() => {
-            updateFavoriteStatus(btn, productId);
-            showToastMobile('Избранное обновлено', false);
-        });
-    });
-});
-
-function showToastMobile(message, isError) {
-    const toast = document.createElement('div');
-    toast.className = 'toast-notification';
-    toast.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' + 
-        '<span>' + (isError ? '❌' : '✅') + '</span>' + 
-        '<span>' + message + '</span>' + 
-        '</div>';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
-</script>
-                        `;
-                        
                         res.send(renderMobilePage('Главная', content, user, 'home', showNotification));
-                        // ========== КОНЕЦ МОБИЛЬНОЙ ВЕРСИИ ==========
                     } else {
-                        // ДЕСКТОПНАЯ ВЕРСИЯ – БЕЗ ИЗМЕНЕНИЙ (КОПИРУЕМ ИСХОДНЫЙ КОД)
                         let productHTML = "";
                         products.forEach(product => {
                             productHTML += `
@@ -2491,7 +2304,6 @@ app.get("/profile", requireAuth, (req, res) => {
         
         if (req.isMobile) {
             db.get("SELECT COUNT(*) as favs FROM favorites WHERE user_id = ?", [user.id], (err, favs) => {
-                const favCount = favs ? favs.favs : 0;
                 const content = `
                     <div class="profile-header">
                         <div class="avatar-container" onclick="openAvatarModal()">
@@ -2503,17 +2315,12 @@ app.get("/profile", requireAuth, (req, res) => {
                     </div>
                     <div class="profile-stats">
                         <div class="stat"><div class="stat-value">0</div><div class="stat-label">Заказов</div></div>
-                        <div class="stat"><div class="stat-value">${favCount}</div><div class="stat-label">Избранное</div></div>
+                        <div class="stat"><div class="stat-value">${favs ? favs.favs : 0}</div><div class="stat-label">Избранное</div></div>
                     </div>
                     <div class="profile-menu">
-                        <div class="menu-item" onclick="window.location='/orders'">
-                                <i class="fas fa-history"></i>
-                                <span>Мои заказы</span>
-                                <i class="fas fa-chevron-right arrow"></i>
-                            </div>
-                        <div class="menu-item" onclick="openSettingsModal()"><i class="fas fa-user-edit"></i><span>Настройки аккаунта</span><i class="fas fa-chevron-right arrow"></i></div>
+                        <div class="menu-item" onclick="openSettingsModal(event)"><i class="fas fa-user-edit"></i><span>Настройки аккаунта</span><i class="fas fa-chevron-right arrow"></i></div>
                         <div class="menu-item" onclick="openFavoritesModal()"><i class="fas fa-heart"></i><span>Избранное</span><i class="fas fa-chevron-right arrow"></i></div>
-                        <div class="menu-item" onclick="openSettingsModal()"><i class="fas fa-credit-card"></i><span>Способы оплаты</span><i class="fas fa-chevron-right arrow"></i></div>
+                        <div class="menu-item" onclick="openSettingsModal(event)"><i class="fas fa-credit-card"></i><span>Способы оплаты</span><i class="fas fa-chevron-right arrow"></i></div>
                     </div>
                     ${user.role === 'admin' ? '<a href="/admin" class="admin-panel-btn"><i class="fas fa-crown"></i> Админ панель</a>' : ''}
                     <a href="/logout" class="logout-btn">Выйти</a>
@@ -2674,7 +2481,8 @@ app.get("/profile", requireAuth, (req, res) => {
                         }, 'image/jpeg', 0.9);
                     }
                     
-                    function openSettingsModal() {
+                    function openSettingsModal(e) {
+                        e.preventDefault();
                         document.getElementById('settingsModal').style.display = 'flex';
                     }
                     
@@ -2705,6 +2513,7 @@ app.get("/profile", requireAuth, (req, res) => {
                         }
                     });
                     
+                    // Функции для модального окна избранного
                     function openFavoritesModal() {
                         document.getElementById('favoritesModal').style.display = 'flex';
                         loadFavoritesList();
@@ -2783,10 +2592,9 @@ app.get("/profile", requireAuth, (req, res) => {
                         }
                     }
                     
-                    // Функция просмотра товара (открытие модального окна)
+                    // ИСПРАВЛЕННАЯ ФУНКЦИЯ viewProduct - открывает модальное окно вместо перехода
                     function viewProduct(productId, type) {
-                        closeFavoritesModal();
-                        window.location.href = '/catalog?product_id=' + productId;
+                        openProductModal(productId, type);
                     }
                     
                     async function updateFavCount() {
@@ -2857,7 +2665,6 @@ app.get("/profile", requireAuth, (req, res) => {
                 res.send(renderMobilePage('Профиль', content, user, 'profile'));
             });
         } else {
-            // ДЕСКТОПНАЯ ВЕРСИЯ ПРОФИЛЯ (БЕЗ ИЗМЕНЕНИЙ)
             db.get("SELECT COUNT(*) as favs FROM favorites WHERE user_id = ?", [user.id], (err, favs) => {
                 const favCount = favs ? favs.favs : 0;
                 res.send(`
@@ -4006,7 +3813,7 @@ app.get("/catalog", (req, res) => {
                 };
                 
                 if (req.isMobile) {
-                    // Мобильная версия каталога (оставляем без изменений, как было)
+                    // Мобильная версия каталога
                     let content = `
                     <style>
                         .big-search { margin-bottom: 20px; }
@@ -4504,7 +4311,7 @@ app.get("/catalog", (req, res) => {
                     return;
                 }
                 
-                // ДЕСКТОПНАЯ ВЕРСИЯ КАТАЛОГА (БЕЗ ИЗМЕНЕНИЙ)
+                // ДЕСКТОПНАЯ ВЕРСИЯ КАТАЛОГА
                 let productsHTML = "";
                 products.forEach(p => {
                     const coverImage = p.image ? `/uploads/${p.image}` : DEFAULT_COVER;
@@ -6524,7 +6331,6 @@ app.get("/cart", requireAuth, (req, res) => {
     db.all("SELECT * FROM carts WHERE user_id = ?", [user.id], (err, cartItems) => {
         if (err || cartItems.length === 0) {
             if (req.isMobile) {
-                // Мобильная пустая корзина (оставляем без изменений)
                 const content = `
                     <div class="empty-cart-container">
                         <div class="empty-cart-animation">
@@ -6777,7 +6583,6 @@ app.get("/cart", requireAuth, (req, res) => {
                 `;
                 return res.send(renderMobilePage('Корзина', content, user, 'cart'));
             } else {
-                // Десктоп пустая корзина (без изменений)
                 return res.send(`<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Корзина · Plastinka</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -6882,7 +6687,6 @@ function escapeHtml(str){ if(!str) return ''; return String(str).replace(/&/g,'&
 
         Promise.all(promises).then(() => {
             if (req.isMobile) {
-                // Мобильная корзина с товарами
                 let itemsHtml = '';
                 items.forEach(item => {
                     const imagePath = item.type === 'player' ? `/photo/${item.image}` : `/uploads/${item.image}`;
@@ -6891,7 +6695,6 @@ function escapeHtml(str){ if(!str) return ''; return String(str).replace(/&/g,'&
                 const content = `${itemsHtml}<div class="cart-total"><span>Итого:</span><span class="total-price">$${totalPrice}</span></div><button class="checkout-btn" onclick="checkout()">Оформить заказ</button><script>function updateQuantity(id,action){fetch('/api/cart/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:id,action:action})}).then(()=>location.reload());}function removeFromCart(id){if(confirm('Удалить товар из корзины?')){fetch('/api/cart/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:id})}).then(()=>location.reload());}}function checkout(){if(confirm('Подтвердите заказ')){fetch('/api/order',{method:'POST'}).then(()=>{alert('✅ Заказ оформлен!');window.location='/';});}}<\/script>`;
                 res.send(renderMobilePage('Корзина', content, user, 'cart'));
             } else {
-                // Десктоп корзина с товарами (без изменений)
                 let itemsHTML = "";
                 items.forEach(item => {
                     const imagePath = item.type === 'player' ? `/photo/${item.image}` : `/uploads/${item.image}`;
@@ -7113,201 +6916,13 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     </body>
     </html>`;
 }
-
-// ============================================================
-// ===================== API ДЛЯ ОФОРМЛЕНИЯ ЗАКАЗА (МОБИЛЬНАЯ ВЕРСИЯ)
-// ============================================================
-app.post("/api/order", requireAuth, (req, res) => {
-    const userId = req.session.user.id;
-    
-    db.all("SELECT * FROM carts WHERE user_id = ?", [userId], async (err, cartItems) => {
-        if (err || !cartItems || cartItems.length === 0) {
-            return res.json({ success: false, error: "Корзина пуста" });
-        }
-        
-        let totalPrice = 0;
-        let itemsList = [];
-        
-        for (const item of cartItems) {
-            const parts = item.product_id.split('_');
-            const type = parts[0];
-            const id = parts[1];
-            
-            if (type === 'product') {
-                const product = await new Promise(resolve => {
-                    db.get("SELECT name, artist, price FROM products WHERE id = ?", [id], (err, data) => resolve(data));
-                });
-                if (product) {
-                    const subtotal = product.price * item.quantity;
-                    totalPrice += subtotal;
-                    itemsList.push({
-                        product_id: item.product_id,
-                        name: product.name,
-                        artist: product.artist,
-                        price: product.price,
-                        quantity: item.quantity,
-                        subtotal: subtotal
-                    });
-                }
-            } else if (type === 'player') {
-                const player = await new Promise(resolve => {
-                    db.get("SELECT name, price FROM players WHERE id = ?", [id], (err, data) => resolve(data));
-                });
-                if (player) {
-                    const subtotal = player.price * item.quantity;
-                    totalPrice += subtotal;
-                    itemsList.push({
-                        product_id: item.product_id,
-                        name: player.name,
-                        artist: 'Проигрыватель',
-                        price: player.price,
-                        quantity: item.quantity,
-                        subtotal: subtotal
-                    });
-                }
-            }
-        }
-        
-        const orderNumber = "ORD-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
-        
-        db.run(
-            "INSERT INTO orders (user_id, order_number, total_price, items, status) VALUES (?, ?, ?, ?, ?)",
-            [userId, orderNumber, totalPrice, JSON.stringify(itemsList), 'pending'],
-            function(err) {
-                if (err) {
-                    console.error("Ошибка сохранения заказа:", err);
-                    return res.json({ success: false, error: "Ошибка сохранения заказа" });
-                }
-                
-                db.run("DELETE FROM carts WHERE user_id = ?", [userId], (err) => {
-                    if (err) {
-                        console.error("Ошибка очистки корзины:", err);
-                    }
-                    res.json({ success: true, orderNumber: orderNumber, totalPrice: totalPrice });
-                });
-            }
-        );
-    });
-});
-
-app.get("/orders", requireAuth, (req, res) => {
-    const user = req.session.user;
-    
-    db.all("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", [user.id], (err, orders) => {
-        let ordersHtml = '';
-        
-        if (orders && orders.length > 0) {
-            orders.forEach(order => {
-                let itemsHtml = '';
-                let items = [];
-                try {
-                    items = JSON.parse(order.items || '[]');
-                } catch(e) { items = []; }
-                
-                items.forEach(item => {
-                    itemsHtml += `<div class="order-item-product">${item.name} × ${item.quantity} — $${item.subtotal}</div>`;
-                });
-                
-                const statusText = order.status === 'pending' ? '⏳ Ожидает' : '✅ Оплачен';
-                const statusClass = order.status === 'pending' ? 'status-pending' : 'status-paid';
-                
-                ordersHtml += `
-                    <div class="order-card">
-                        <div class="order-header">
-                            <span class="order-number">${order.order_number}</span>
-                            <span class="order-status ${statusClass}">${statusText}</span>
-                        </div>
-                        <div class="order-date">${new Date(order.created_at).toLocaleDateString()}</div>
-                        <div class="order-items">${itemsHtml}</div>
-                        <div class="order-total">Итого: $${order.total_price}</div>
-                    </div>
-                `;
-            });
-        } else {
-            ordersHtml = '<div class="empty-state"><i class="fas fa-shopping-bag"></i><p>У вас пока нет заказов</p><a href="/catalog" class="empty-btn">В каталог</a></div>';
-        }
-        
-        const content = `
-            <style>
-                .order-card {
-                    background: #1a1a1a;
-                    border-radius: 16px;
-                    padding: 16px;
-                    margin-bottom: 16px;
-                    border: 1px solid #333;
-                }
-                .order-header {
-                    display: flex;
-                    justify-content: space-between;
-                    margin-bottom: 8px;
-                }
-                .order-number {
-                    font-weight: bold;
-                    color: #ff7a2f;
-                    font-size: 14px;
-                }
-                .order-status {
-                    font-size: 12px;
-                    padding: 4px 8px;
-                    border-radius: 20px;
-                }
-                .status-pending {
-                    background: rgba(255,122,47,0.2);
-                    color: #ff7a2f;
-                }
-                .status-paid {
-                    background: rgba(76,175,80,0.2);
-                    color: #4CAF50;
-                }
-                .order-date {
-                    font-size: 12px;
-                    color: #888;
-                    margin-bottom: 12px;
-                }
-                .order-items {
-                    margin: 12px 0;
-                    padding: 12px 0;
-                    border-top: 1px solid #333;
-                    border-bottom: 1px solid #333;
-                }
-                .order-item-product {
-                    font-size: 14px;
-                    margin-bottom: 6px;
-                }
-                .order-total {
-                    text-align: right;
-                    font-weight: bold;
-                    color: #ff0000;
-                    font-size: 16px;
-                }
-                .empty-state {
-                    text-align: center;
-                    padding: 60px 20px;
-                }
-                .empty-btn {
-                    display: inline-block;
-                    background: linear-gradient(45deg, #ff0000, #990000);
-                    color: white;
-                    padding: 12px 24px;
-                    border-radius: 30px;
-                    text-decoration: none;
-                    margin-top: 20px;
-                }
-            </style>
-            <h2 class="section-title">📦 Мои заказы</h2>
-            ${ordersHtml}
-        `;
-        
-        res.send(renderMobilePage('Мои заказы', content, user, 'profile'));
-    });
-});
-
 // ============================================================
 // ===================== СТРАНИЦА ИЗБРАННОГО (МОБИЛЬНАЯ) ==========
 // ============================================================
 app.get("/favorites", requireAuth, (req, res) => {
     const user = req.session.user;
     
+    // Получаем список избранного через API
     const userId = user.id;
     
     db.all(`
@@ -7328,6 +6943,7 @@ app.get("/favorites", requireAuth, (req, res) => {
         `, [userId], (err2, players) => {
             if (err2) players = [];
             
+            // Собираем все избранное в один массив
             const favorites = [];
             
             products.forEach(p => {
@@ -7355,6 +6971,7 @@ app.get("/favorites", requireAuth, (req, res) => {
                 });
             });
             
+            // Сортируем по дате добавления (новые сверху)
             favorites.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
             
             let favoritesHtml = '';
@@ -7403,6 +7020,45 @@ app.get("/favorites", requireAuth, (req, res) => {
             
             const content = `
                 <style>
+                    /* Анимация пластинки для мобильной версии */
+                        .vinyl-animation {
+                            position: relative;
+                            aspect-ratio: 1;
+                            overflow: hidden;
+                            cursor: pointer;
+                        }
+                        .album-cover {
+                            position: relative;
+                            z-index: 2;
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            transition: transform 0.3s ease;
+                        }
+                        .vinyl-disc {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            z-index: 1;
+                            transition: opacity 0.3s ease;
+                            opacity: 0;
+                            animation: spin 5s linear infinite;
+                            animation-play-state: paused;
+                        }
+                        .vinyl-animation.active .album-cover {
+                            transform: translateX(50%);
+                        }
+                        .vinyl-animation.active .vinyl-disc {
+                            opacity: 1;
+                            animation-play-state: running;
+                        }
+                        @keyframes spin {
+                            from { transform: rotate(0deg); }
+                            to { transform: rotate(360deg); }
+                        }
                     .empty-favorites {
                         text-align: center;
                         padding: 60px 20px;
@@ -7554,11 +7210,124 @@ app.get("/favorites", requireAuth, (req, res) => {
                         document.body.appendChild(toast);
                         setTimeout(() => toast.remove(), 3000);
                     }
+                    // Эффект пластинки при клике на карточку (мобильная версия)
+document.querySelectorAll('.vinyl-animation').forEach(container => {
+    let timeoutId = null;
+    
+    container.addEventListener('click', function(e) {
+        // Не срабатываем если кликнули по кнопкам действий
+        if (e.target.closest('.action-btn')) return;
+        
+        e.stopPropagation();
+        
+        // Убираем предыдущий таймаут
+        if (timeoutId) clearTimeout(timeoutId);
+        
+        // Добавляем класс active
+        this.classList.add('active');
+        
+        // Через 2 секунды возвращаем обратно
+        timeoutId = setTimeout(() => {
+            this.classList.remove('active');
+            timeoutId = null;
+        }, 2000);
+    });
+});
+
+// Кнопка прослушивания (отдельно от анимации)
+document.querySelectorAll('.play-track').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const audioFile = this.dataset.audio;
+        if (!audioFile) {
+            showToastMobile('🎵 Аудиопревью недоступно', true);
+            return;
+        }
+        
+        if (window.currentTrackAudio && !window.currentTrackAudio.paused) {
+            window.currentTrackAudio.pause();
+            window.currentTrackAudio.currentTime = 0;
+        }
+        
+        const audio = new Audio('/audio/' + audioFile);
+        audio.play().catch(e => console.log('Audio play error:', e));
+        window.currentTrackAudio = audio;
+        
+        audio.onended = () => { window.currentTrackAudio = null; };
+        
+        // Визуальная обратная связь
+        this.style.transform = 'scale(0.9)';
+        setTimeout(() => { this.style.transform = ''; }, 200);
+    });
+});
                 </script>
             `;
             
             res.send(renderMobilePage('Избранное', content, user, 'favorites'));
         });
+    });
+});
+let currentPlayingAudio = null;
+
+function playTrack(audioFile, event) {
+    event.stopPropagation();
+    if (!audioFile) {
+        showToastMobile('🎵 Аудиопревью недоступно', true);
+        return;
+    }
+    
+    // Если уже играет этот же трек — останавливаем
+    if (currentPlayingAudio && !currentPlayingAudio.paused) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio.currentTime = 0;
+        currentPlayingAudio = null;
+        return;
+    }
+    
+    // Останавливаем предыдущий трек
+    if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio.currentTime = 0;
+    }
+    
+    // Создаём и играем новый
+    const audio = new Audio('/audio/' + audioFile);
+    audio.play().catch(e => {
+        console.error('Audio play error:', e);
+        showToastMobile('Не удалось воспроизвести трек', true);
+    });
+    currentPlayingAudio = audio;
+    
+    // По окончании — очищаем
+    audio.onended = function() {
+        currentPlayingAudio = null;
+    };
+}
+// Кнопка прослушивания (отдельно от анимации)
+document.querySelectorAll('.play-track').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const audioFile = this.dataset.audio;
+        if (!audioFile) {
+            showToastMobile('🎵 Аудиопревью недоступно', true);
+            return;
+        }
+        
+        if (window.currentTrackAudio && !window.currentTrackAudio.paused) {
+            window.currentTrackAudio.pause();
+            window.currentTrackAudio.currentTime = 0;
+            if (window.currentTrackAudio === audio) window.currentTrackAudio = null;
+        }
+        
+        const audio = new Audio('/audio/' + audioFile);
+        audio.play().catch(e => console.log('Audio play error:', e));
+        window.currentTrackAudio = audio;
+        
+        audio.onended = () => { window.currentTrackAudio = null; };
+        
+        // Визуальная обратная связь
+        this.style.transform = 'scale(0.9)';
+        setTimeout(() => { this.style.transform = ''; }, 200);
     });
 });
 

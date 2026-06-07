@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: plastinka7
+    runtime: node
+    plan: free
+    buildCommand: npm install --build-from-source
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: NPM_CONFIG_PRODUCTION
+        value: false
+    disk:
+      name: sqlite-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
