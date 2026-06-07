@@ -799,7 +799,7 @@ app.get("/", (req, res) => {
                             content += `
         <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}" data-product-id-for-api="${productIdForApi}">
             <div class="product-image vinyl-animation">
-                <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)}">
+                <img src="/uploads/${product.image}" class="album-cover" alt="${escapeHtml(product.name)} onerror="this.src='/uploads/666.png'">
                 <img src="/photo/plastinka-audio.png" class="vinyl-disc">
                 ${product.audio ? `<audio preload="none" style="display: none;" data-src="/audio/${product.audio}"></audio>` : ''}
             </div>
@@ -1014,7 +1014,7 @@ app.get("/", (req, res) => {
      data-product-genre="${escapeHtml(product.genre || 'Rock')}"
      data-product-year="${escapeHtml(product.year || '1970')}">
     <div class="image-container">
-        <img src="/uploads/${product.image}" class="graf">
+        <img src="/uploads/${product.image}" class="graf" onerror="this.src='/uploads/666.png'>
         <img src="/photo/plastinka-audio.png" class="plastinka">
         ${product.audio ? `<audio class="album-audio" src="/audio/${product.audio}" preload="auto"></audio>` : ""}
     </div>
@@ -6950,6 +6950,17 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     .telegram-theme .top-bar,.telegram-theme .bottom-nav{background:var(--tg-theme-secondary-bg-color, #0a0a0a);}
     .telegram-theme .product-card{background:var(--tg-theme-secondary-bg-color, #1a1a1a);}
     @media (max-width: 480px){.products-grid{grid-template-columns:1fr;}}
+
+    .comments-list { background: #111; border-radius: 12px; padding: 12px; max-height: 200px; overflow-y: auto; margin: 15px 0; }
+.comment-item { padding: 10px 0; border-bottom: 1px solid #333; }
+.comment-item:last-child { border-bottom: none; }
+.comment-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.comment-user { color: #ff7a2f; font-weight: bold; font-size: 12px; }
+.comment-date { color: #666; font-size: 10px; }
+.comment-rating { margin: 5px 0; }
+.comment-text { color: #ccc; font-size: 13px; line-height: 1.4; }
+.no-comments { text-align: center; color: #666; padding: 20px; }
+.submit-rating-btn { width: 100%; background: linear-gradient(45deg, #ff7a2f, #ff0000); border: none; border-radius: 8px; padding: 10px; color: white; font-weight: bold; cursor: pointer; margin-top: 10px; }
     </style>
     </head>
     <body class="telegram-theme">
