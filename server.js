@@ -2267,6 +2267,80 @@ function showToastMobile(message, isError) {
 // ============================================================
 // ===================== АДМИН ПАНЕЛЬ (НАСТРОЙКИ) =============
 // ============================================================
+app.get("/admin/settings", requireAdmin, (req, res) => {
+    db.get("SELECT value FROM site_settings WHERE key = 'homepage_products'", [], (err, setting) => {
+        const currentMode = setting ? setting.value : 'last_added';
+        
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки главной · Plastinka</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:#0f0f0f;color:#fff;font-family:system-ui,sans-serif;padding:40px 20px;}
+        .container{max-width:600px;margin:0 auto;background:#1a1a1a;border-radius:20px;padding:30px;border:1px solid #333;}
+        h1{color:#ff7a2f;margin-bottom:10px;display:flex;align-items:center;gap:12px;}
+        .sub{color:#888;margin-bottom:30px;}
+        .mode-option{background:#0f0f0f;border:1px solid #333;border-radius:16px;padding:20px;margin-bottom:15px;cursor:pointer;transition:0.2s;}
+        .mode-option:hover{border-color:#ff7a2f;background:#111;}
+        .mode-option.selected{border-color:#ff0000;background:rgba(255,0,0,0.1);}
+        .mode-title{font-weight:bold;font-size:18px;margin-bottom:8px;}
+        .mode-desc{color:#aaa;font-size:14px;}
+        .save-btn{width:100%;background:linear-gradient(45deg,#ff0000,#990000);border:none;padding:14px;border-radius:40px;color:white;font-weight:bold;cursor:pointer;margin-top:10px;}
+        .back-link{display:block;text-align:center;margin-top:20px;color:#ff7a2f;text-decoration:none;}
+        input[type="radio"]{display:none;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1><i class="fas fa-sliders-h"></i> Настройки главной страницы</h1>
+    <div class="sub">Выберите, какие товары отображать в блоке «Новинки»</div>
+    <form method="POST" action="/admin/settings">
+        <label class="mode-option ${currentMode === 'last_added' ? 'selected' : ''}">
+            <input type="radio" name="mode" value="last_added" ${currentMode === 'last_added' ? 'checked' : ''}>
+            <div class="mode-title"><i class="fas fa-clock"></i> Последние добавленные</div>
+            <div class="mode-desc">Показывать 6 самых новых пластинок</div>
+        </label>
+        <label class="mode-option ${currentMode === 'popular' ? 'selected' : ''}">
+            <input type="radio" name="mode" value="popular" ${currentMode === 'popular' ? 'checked' : ''}>
+            <div class="mode-title"><i class="fas fa-fire"></i> Популярные</div>
+            <div class="mode-desc">Сортировка по рейтингу (требуются оценки)</div>
+        </label>
+        <label class="mode-option ${currentMode === 'all' ? 'selected' : ''}">
+            <input type="radio" name="mode" value="all" ${currentMode === 'all' ? 'checked' : ''}>
+            <div class="mode-title"><i class="fas fa-th-large"></i> Все товары</div>
+            <div class="mode-desc">Показать до 12 пластинок</div>
+        </label>
+        <button type="submit" class="save-btn"><i class="fas fa-save"></i> Сохранить настройки</button>
+    </form>
+    <a href="/admin" class="back-link"><i class="fas fa-arrow-left"></i> Вернуться в админ-панель</a>
+</div>
+</body>
+</html>
+        `;
+        res.send(html);
+    });
+});
+
+app.post("/admin/settings", requireAdmin, (req, res) => {
+    const { mode } = req.body;
+    if (mode && ['last_added', 'popular', 'all'].includes(mode)) {
+        db.run("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('homepage_products', ?)", [mode], (err) => {
+            if (err) {
+                console.error("Ошибка сохранения настроек:", err);
+                return res.redirect("/admin/settings?error=1");
+            }
+            res.redirect("/admin/settings?saved=1");
+        });
+    } else {
+        res.redirect("/admin/settings?error=1");
+    }
+});
+
 app.get("/admin", requireAdmin, (req, res) => {
     const username = req.session.user.username;
 
