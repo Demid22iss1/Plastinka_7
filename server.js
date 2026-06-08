@@ -2306,10 +2306,28 @@ app.get("/profile", requireAuth, (req, res) => {
             db.get("SELECT COUNT(*) as favs FROM favorites WHERE user_id = ?", [user.id], (err, favs) => {
                 const content = `
                     <div class="profile-header">
-                        <div class="avatar-container" onclick="openAvatarModal()">
-                            <img src="/avatars/${avatar}" class="profile-avatar" id="profileAvatar">
-                            <div class="avatar-overlay"><i class="fas fa-camera"></i></div>
-                        </div>
+                        <div id="avatarModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:450px; text-align:center;">
+        <button class="modal-close" onclick="closeAvatarModal()">&times;</button>
+        <h3 style="color:#ff7a2f; margin-bottom:20px;">📸 Изменить аватар</h3>
+        <div class="avatar-upload-area">
+            <div class="avatar-preview">
+                <img src="/avatars/${avatar}" id="avatarPreview" style="width:100%; height:100%; object-fit:cover;">
+            </div>
+        </div>
+        <input type="file" id="avatarFileInput" accept="image/*" style="display:none;" onchange="loadImageForCrop()">
+        <button type="button" class="avatar-upload-btn" onclick="document.getElementById('avatarFileInput').click()">
+            📁 Выбрать изображение
+        </button>
+        <div id="cropContainer" style="display:none; margin-top:15px;">
+            <div style="width:100%; height:300px; margin-bottom:10px;">
+                <img id="cropImage" style="max-width:100%; max-height:100%;">
+            </div>
+            <button onclick="cropAndUpload()" class="avatar-crop-btn">✂️ Обрезать и загрузить</button>
+        </div>
+        <p id="avatarUploadMessage" style="margin-top:10px; font-size:12px;"></p>
+    </div>
+</div>
                         <h2 class="profile-name">${escapeHtml(user.username)}</h2>
                         <p class="profile-role">${user.role === 'admin' ? 'Администратор' : 'Покупатель'}</p>
                     </div>
@@ -3980,6 +3998,67 @@ app.get("/catalog", (req, res) => {
                     </div>
                     
                     <script>
+                    function openReviewModal() {
+    const modal = document.getElementById('reviewModal');
+    if (modal) modal.style.display = 'flex';
+    // Сброс выбранных звёзд
+    const stars = document.querySelectorAll('#reviewStars i');
+    stars.forEach(star => {
+        star.classList.remove('selected');
+    });
+    document.getElementById('reviewComment').value = '';
+}
+
+function closeReviewModal() {
+    const modal = document.getElementById('reviewModal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Обработчики выбора звёзд
+document.querySelectorAll('#reviewStars i').forEach(star => {
+    star.addEventListener('click', function() {
+        const rating = parseInt(this.dataset.rating);
+        const stars = document.querySelectorAll('#reviewStars i');
+        stars.forEach((s, idx) => {
+            if (idx < rating) {
+                s.classList.add('selected');
+            } else {
+                s.classList.remove('selected');
+            }
+        });
+        window.selectedRating = rating;
+    });
+});
+
+function submitReview() {
+    const isLoggedIn = ${!!user};
+    if (!isLoggedIn) {
+        alert('Войдите, чтобы оставить отзыв');
+        window.location.href = '/login';
+        return;
+    }
+    const rating = window.selectedRating;
+    const comment = document.getElementById('reviewComment').value;
+    const productId = currentModalProductId;
+    if (!rating) {
+        alert('Выберите оценку');
+        return;
+    }
+    fetch('/api/rating/' + productId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: rating, comment: comment })
+    }).then(res => res.json()).then(data => {
+        if (data.success) {
+            closeReviewModal();
+            // Обновить рейтинг на странице
+            location.reload();
+        } else {
+            alert('Ошибка при сохранении отзыва');
+        }
+    });
+}
+
                     let currentModalProductId = null;
                     let currentModalProductRealId = null;
                     let currentModalSelectedRating = null;
@@ -6378,6 +6457,78 @@ app.post("/remove-from-cart-ajax", requireAuth, (req, res) => {
     });
 });
 
+app.post("/api/order", requireAuth, (req, res) => {
+    const userId = req.session.user.id;
+    
+    db.all("SELECT * FROM carts WHERE user_id = ?", [userId], async (err, cartItems) => {
+        if (err || !cartItems || cartItems.length === 0) {
+            return res.json({ success: false, error: "Корзина пуста" });
+        }
+        
+        let totalPrice = 0;
+        let itemsList = [];
+        
+        for (const item of cartItems) {
+            const parts = item.product_id.split('_');
+            const type = parts[0];
+            const id = parts[1];
+            
+            if (type === 'product') {
+                const product = await new Promise(resolve => {
+                    db.get("SELECT name, artist, price FROM products WHERE id = ?", [id], (err, data) => resolve(data));
+                });
+                if (product) {
+                    const subtotal = product.price * item.quantity;
+                    totalPrice += subtotal;
+                    itemsList.push({
+                        product_id: item.product_id,
+                        name: product.name,
+                        artist: product.artist,
+                        price: product.price,
+                        quantity: item.quantity,
+                        subtotal: subtotal
+                    });
+                }
+            } else if (type === 'player') {
+                const player = await new Promise(resolve => {
+                    db.get("SELECT name, price FROM players WHERE id = ?", [id], (err, data) => resolve(data));
+                });
+                if (player) {
+                    const subtotal = player.price * item.quantity;
+                    totalPrice += subtotal;
+                    itemsList.push({
+                        product_id: item.product_id,
+                        name: player.name,
+                        artist: 'Проигрыватель',
+                        price: player.price,
+                        quantity: item.quantity,
+                        subtotal: subtotal
+                    });
+                }
+            }
+        }
+        
+        const orderNumber = "ORD-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
+        
+        db.run(
+            "INSERT INTO orders (user_id, order_number, total_price, items, status) VALUES (?, ?, ?, ?, ?)",
+            [userId, orderNumber, totalPrice, JSON.stringify(itemsList), 'pending'],
+            function(err) {
+                if (err) {
+                    console.error("Ошибка сохранения заказа:", err);
+                    return res.json({ success: false, error: "Ошибка сохранения заказа" });
+                }
+                
+                // Очистка корзины
+                db.run("DELETE FROM carts WHERE user_id = ?", [userId], (err) => {
+                    if (err) console.error("Ошибка очистки корзины:", err);
+                    res.json({ success: true, orderNumber: orderNumber, totalPrice: totalPrice });
+                });
+            }
+        );
+    });
+});
+
 app.get("/cart", requireAuth, (req, res) => {
     const user = req.session.user;
     db.all("SELECT * FROM carts WHERE user_id = ?", [user.id], (err, cartItems) => {
@@ -6656,6 +6807,7 @@ footer{text-align:center;padding:40px;background:#0a0a0a;margin-top:60px}.footer
 .favorite-item{display:flex;align-items:center;gap:15px;padding:12px;background:rgba(255,255,255,0.05);border-radius:16px;border:1px solid #333;transition:all 0.2s}
 .favorite-item:hover{background:rgba(255,255,255,0.1);border-color:#ff7a2f;transform:translateX(5px)}
 @media(max-width:600px){.empty-cart-card{padding:40px 30px;margin:20px}.empty-cart-title-desktop{font-size:28px}.empty-cart-buttons{flex-direction:column}.empty-cart-btn-primary,.empty-cart-btn-secondary{justify-content:center}}
+
 </style>
 </head>
 <body>
@@ -6772,6 +6924,89 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover"><title>${escapeHtml(title)} · Plastinka</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
+    /* Улучшенный стиль для окна отзыва */
+.review-modal-content {
+    text-align: center;
+}
+.review-title {
+    font-size: 20px;
+    color: #ff7a2f;
+    margin-bottom: 20px;
+}
+.review-stars {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin: 20px 0;
+}
+.review-stars i {
+    font-size: 32px;
+    cursor: pointer;
+    transition: transform 0.2s, color 0.2s;
+    color: #555;
+}
+.review-stars i.selected {
+    color: #ff7a2f;
+    transform: scale(1.2);
+}
+#reviewComment {
+    width: 100%;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 12px;
+    color: white;
+    font-size: 14px;
+    resize: vertical;
+    margin: 15px 0;
+}
+.submit-review-btn {
+    background: linear-gradient(45deg, #ff0000, #990000);
+    border: none;
+    border-radius: 30px;
+    padding: 12px 24px;
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    width: 100%;
+    transition: transform 0.2s;
+}
+.submit-review-btn:hover {
+    transform: scale(1.02);
+}
+
+.avatar-upload-area {
+    margin: 20px 0;
+}
+.avatar-preview {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #ff7a2f;
+    margin: 0 auto 15px;
+}
+.avatar-upload-btn {
+    background: rgba(255,122,47,0.2);
+    border: 1px solid #ff7a2f;
+    color: #ff7a2f;
+    padding: 10px;
+    border-radius: 30px;
+    width: 100%;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+.avatar-crop-btn {
+    background: linear-gradient(45deg, #ff7a2f, #ff0000);
+    border: none;
+    border-radius: 30px;
+    padding: 10px;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    width: 100%;
+}
     *{margin:0;padding:0;box-sizing:border-box;}body{background:#0f0f0f;color:white;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;padding-bottom:70px;min-height:100vh;}
     .top-bar{background:#0a0a0a;padding:12px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;border-bottom:1px solid #222;}
     .top-bar .logo{height:32px;width:auto;}
@@ -6849,7 +7084,6 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
     </div>
     <div class="content">${content}</div>
     <nav class="bottom-nav">
-        <a href="/" class="nav-item ${activeTab === 'home' ? 'active' : ''}"><i class="fas fa-home"></i><span>Главная</span></a>
         <a href="/catalog" class="nav-item ${activeTab === 'catalog' ? 'active' : ''}"><i class="fas fa-record-vinyl"></i><span>Каталог</span></a>
         <a href="/favorites" class="nav-item ${activeTab === 'favorites' ? 'active' : ''}"><i class="fas fa-heart"></i><span>Избранное</span></a>
         <a href="/cart" class="nav-item ${activeTab === 'cart' ? 'active' : ''}"><i class="fas fa-shopping-cart"></i><span>Корзина</span></a>
