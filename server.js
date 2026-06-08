@@ -7090,6 +7090,41 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
         <a href="/profile" class="nav-item ${activeTab === 'profile' ? 'active' : ''}"><i class="fas fa-user"></i><span>Профиль</span></a>
     </nav>
     <script>
+    document.querySelectorAll('.vinyl-animation').forEach(container => {
+    let longPressTimer = null;
+    const audioElement = container.querySelector('audio');
+    const audioSrc = audioElement?.getAttribute('data-src');
+    if (!audioSrc) return; // нет аудио – пропускаем
+
+    container.addEventListener('touchstart', function(e) {
+        // Не срабатываем, если кликнули по кнопкам действий (корзина, избранное, плей)
+        if (e.target.closest('.action-btn')) return;
+        longPressTimer = setTimeout(() => {
+            // Воспроизводим аудио
+            const audio = new Audio(audioSrc);
+            audio.play().catch(err => console.log('Audio play error:', err));
+            // Визуальный эффект – показываем вращение пластинки на 2 секунды
+            this.classList.add('active');
+            setTimeout(() => this.classList.remove('active'), 2000);
+            longPressTimer = null;
+        }, 500); // задержка 500 мс – считается долгим нажатием
+    });
+
+    container.addEventListener('touchend', function() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+
+    container.addEventListener('touchmove', function() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+});
+
     // Инициализация Telegram WebApp
     const tg = window.Telegram?.WebApp;
     let tgUser = null;
